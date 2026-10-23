@@ -1,5 +1,5 @@
 import type { Shape } from './Shape.js';
-import type { GroupShape } from './GroupShape.js';
+import { GroupShape } from './GroupShape.js';
 import type { SvgDocument } from './SvgDocument.js';
 
 /** Owns topology and ownership together; every exported write is a complete operation. */
@@ -115,6 +115,76 @@ export class TreeOwnership {
 
   static back(document: SvgDocument, id: string): void {
     this.#reorder(document, id, false);
+  }
+
+  static group(document: SvgDocument, newId: string, ids: readonly string[]): GroupShape {
+    this.#assertDocument(document);
+    const requested = [...ids];
+    if (requested.length === 0) throw new Error('group requires at least one shape');
+    const original = this.childrenOf(document).flatMap(root => this.nodes(root));
+    const byId = new Map(original.map(shape => [shape.id, shape]));
+    if (byId.has(newId)) throw new Error(`id already exists: ${newId}`);
+    const selected = new Set<Shape>();
+    for (const id of requested) {
+      const shape = byId.get(id);
+      if (!shape) throw new Error(`no such shape: ${id}`);
+      if (selected.has(shape)) throw new Error(`duplicate selection: ${id}`);
+      selected.add(shape);
+    }
+    const ordered = original.filter(shape => selected.has(shape));
+    const paths = ordered.map(shape => this.#containerPath(document, shape));
+    for (const path of paths) {
+      for (const container of path) {
+        if (this.#isGroup(container) && selected.has(container)) {
+          throw new Error(`cannot group a container into its own descendant: ${container.id}`);
+        }
+      }
+    }
+    const common = paths[0]!.find(container => paths.every(path => path.includes(container)));
+    if (!common) throw new Error('no common document container');
+    const commonChildren = this.childrenOf(common);
+    const anchor = commonChildren.find(branch => this.nodes(branch).some(node => selected.has(node)));
+    if (!anchor) throw new Error('no grouping insertion anchor');
+    const replacements = new Map<GroupShape | SvgDocument, readonly Shape[]>();
+    for (const path of paths) {
+      const owner = path[0]!;
+      if (!replacements.has(owner)) {
+        replacements.set(owner, Object.freeze(this.childrenOf(owner).filter(child => !selected.has(child))));
+      }
+    }
+
+    // Construct only an empty, unexposed group: attached originals must not be
+    // passed to the detached-subtree constructor. No live tree has changed yet.
+    const group = new GroupShape(newId);
+    const target: Shape[] = [];
+    for (const child of commonChildren) {
+      if (child === anchor) target.push(group);
+      if (!selected.has(child)) target.push(child);
+    }
+    replacements.set(common, Object.freeze(target));
+    const members = Object.freeze(ordered);
+
+    // All validation, traversal, construction and candidate allocation is done.
+    // Native writes to genuine private WeakMaps use validated object keys. The
+    // new group's owner entry is new; resource exhaustion is not a recoverable
+    // domain error. There are no callbacks or public operations in this commit.
+    this.#members.set(group, members);
+    for (const [container, children] of replacements) this.#members.set(container, children);
+    for (const shape of members) this.#owners.set(shape, group);
+    this.#owners.set(group, common);
+    return group;
+  }
+
+  static #containerPath(document: SvgDocument, shape: Shape): (GroupShape | SvgDocument)[] {
+    const path: (GroupShape | SvgDocument)[] = [];
+    let owner = this.#requireOwner(document, shape);
+    path.push(owner);
+    while (owner !== document) {
+      if (!this.#isGroup(owner)) throw new Error(`invalid owner: ${shape.id}`);
+      owner = this.#requireOwner(document, owner);
+      path.push(owner);
+    }
+    return path;
   }
 
   static #reorder(document: SvgDocument, id: string, front: boolean): void {

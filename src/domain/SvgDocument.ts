@@ -51,6 +51,10 @@ export class SvgDocument {
     TreeOwnership.back(this, id);
   }
 
+  group(newId: string, ids: readonly string[]): GroupShape {
+    return TreeOwnership.group(this, newId, ids);
+  }
+
   clone(): SvgDocument {
     const copy = new SvgDocument(this.#width, this.#height);
     for (const root of this.roots) copy.insert(root.clone());
