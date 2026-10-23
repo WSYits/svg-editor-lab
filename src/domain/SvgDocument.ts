@@ -1,21 +1,21 @@
 import { Shape } from './Shape.js';
-import { GroupShape } from './GroupShape.js';
-import { TreeOwnership, treeMutation } from './TreeOwnership.js';
+import type { GroupShape } from './GroupShape.js';
+import { TreeOwnership } from './TreeOwnership.js';
 
 export class SvgDocument {
   #width: number;
   #height: number;
-  readonly #roots: Shape[] = [];
 
   constructor(width = 800, height = 600) {
     this.validateSize(width, height);
     this.#width = width;
     this.#height = height;
+    TreeOwnership.initializeDocument(this);
   }
 
   get width(): number { return this.#width; }
   get height(): number { return this.#height; }
-  get roots(): readonly Shape[] { return Object.freeze([...this.#roots]); }
+  get roots(): readonly Shape[] { return TreeOwnership.childrenOf(this); }
 
   resize(width: number, height: number): void {
     this.validateSize(width, height);
@@ -24,66 +24,25 @@ export class SvgDocument {
   }
 
   findById(id: string): Shape | undefined {
-    return this.#roots.flatMap(root => TreeOwnership.nodes(root)).find(shape => shape.id === id);
+    return TreeOwnership.findById(this, id);
   }
 
   parentOf(id: string): GroupShape | undefined {
-    const shape = this.requireShape(id);
-    const owner = TreeOwnership.ownerOf(shape);
-    return owner instanceof GroupShape ? owner : undefined;
+    return TreeOwnership.parentOf(this, id);
   }
 
   insert(shape: Shape, parentId?: string): void {
-    let parent: GroupShape | undefined;
-    if (parentId !== undefined) {
-      const target = this.findById(parentId);
-      if (!target) throw new Error(`no such container: ${parentId}`);
-      if (!(target instanceof GroupShape)) throw new Error(`not a container: ${parentId}`);
-      parent = target;
-    }
-    const nodes = TreeOwnership.nodes(shape);
-    if (parent && nodes.includes(parent)) throw new Error('cannot create a parent-child cycle');
-    TreeOwnership.assertDetached(shape);
-    const ids = new Set<string>();
-    const objects = new Set<Shape>();
-    for (const node of nodes) {
-      if (objects.has(node)) throw new Error(`duplicate shape object: ${node.id}`);
-      if (ids.has(node.id) || this.findById(node.id)) throw new Error(`id already exists: ${node.id}`);
-      ids.add(node.id);
-      objects.add(node);
-    }
-    // All domain validation precedes the synchronous membership commit.
-    if (parent) parent.appendChild(shape, treeMutation);
-    else {
-      TreeOwnership.claim(shape, this, treeMutation);
-      this.#roots.push(shape);
-    }
+    TreeOwnership.insert(this, shape, parentId);
   }
 
   remove(id: string): Shape {
-    const shape = this.requireShape(id);
-    const owner = TreeOwnership.ownerOf(shape);
-    if (owner === this) {
-      const index = this.#roots.indexOf(shape);
-      if (index < 0) throw new Error(`invalid root ownership: ${id}`);
-      TreeOwnership.release(shape, this, treeMutation);
-      this.#roots.splice(index, 1);
-    } else if (owner instanceof GroupShape) {
-      owner.removeChild(shape, treeMutation);
-    } else throw new Error(`invalid owner: ${id}`);
-    return shape;
+    return TreeOwnership.remove(this, id);
   }
 
   clone(): SvgDocument {
     const copy = new SvgDocument(this.#width, this.#height);
-    for (const root of this.#roots) copy.insert(root.clone());
+    for (const root of this.roots) copy.insert(root.clone());
     return copy;
-  }
-
-  private requireShape(id: string): Shape {
-    const shape = this.findById(id);
-    if (!shape) throw new Error(`no such shape: ${id}`);
-    return shape;
   }
 
   private validateSize(width: number, height: number): void {

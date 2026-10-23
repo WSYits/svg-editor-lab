@@ -103,8 +103,8 @@ test('constructor copies and freezes child collections; leaves expose no childre
   assert.deepEqual(group.children, [rect]);
   assert.throws(() => Object.assign(group.children, { 0: group }), TypeError);
   assert.deepEqual(rect.children, []);
-  assert.throws(() => group.appendChild(group, Symbol()), /document access/);
-  assert.throws(() => group.removeChild(rect, Symbol()), /document access/);
+  assert.equal('appendChild' in group, false);
+  assert.equal('removeChild' in group, false);
   assert.deepEqual(group.children, [rect]);
 });
 
