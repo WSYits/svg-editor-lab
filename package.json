@@ -1,0 +1,17 @@
+{
+  "name": "svg-editor-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Software engineering course lab: incremental SVG CLI editor",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/initialization.test.js",
+    "start": "node dist/src/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
