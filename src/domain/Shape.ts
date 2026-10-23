@@ -21,6 +21,11 @@ export abstract class Shape {
   abstract scale(factor: number): void;
   abstract clone(): Shape;
 
+  /** Structural traversal is uniform; leaves have no children. */
+  get children(): readonly Shape[] {
+    return Object.freeze([]);
+  }
+
   getAttributes(): Readonly<Record<string, AttributeValue>> {
     return Object.freeze({ id: this.id, ...this.getOwnAttributes(), ...this.#styles });
   }

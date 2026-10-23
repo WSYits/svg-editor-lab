@@ -16,6 +16,25 @@ const cases: { name: string; create: () => Shape }[] = [
 ];
 
 for (const { name, create } of cases) {
+  test(`${name}: clone captures edited geometry and preserves absent styles`, () => {
+    const shape: Shape = create();
+    shape.move(-3.5, 7);
+    shape.scale(0.25);
+    const numeric = Object.entries(shape.getAttributes()).find(([, value]) => typeof value === 'number');
+    assert.ok(numeric);
+    shape.setAttribute(numeric[0], 9.5);
+    const before = shape.getAttributes();
+    const copy: Shape = shape.clone();
+    assert.deepEqual(copy.getAttributes(), before);
+    assert.equal(Object.getPrototypeOf(copy), Object.getPrototypeOf(shape));
+    for (const attr of ['fill', 'stroke', 'stroke-width']) {
+      assert.equal(copy.getAttribute(attr), undefined);
+      assert.equal(Object.hasOwn(copy.getAttributes(), attr), false);
+    }
+    copy.move(1, 2);
+    assert.deepEqual(shape.getAttributes(), before);
+  });
+
   test(`${name}: styles remain unset until explicitly assigned`, () => {
     const shape = create();
     for (const attr of ['fill', 'stroke', 'stroke-width']) {
@@ -101,4 +120,13 @@ test('optional constructor styles are retained without adding defaults', () => {
   const line = new LineShape('l', 0, 0, 1, 1, 'black');
   assert.equal(line.getAttribute('stroke'), 'black');
   assert.equal(line.getAttribute('fill'), undefined);
+});
+
+test('clone captures edited text content rather than constructor content', () => {
+  const shape: Shape = new TextShape('t', 1, 2, 'initial');
+  shape.setAttribute('text', '修改后的内容');
+  const copy = shape.clone();
+  assert.deepEqual(copy.getAttributes(), shape.getAttributes());
+  copy.setAttribute('text', '');
+  assert.equal(shape.getAttribute('text'), '修改后的内容');
 });
