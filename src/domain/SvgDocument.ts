@@ -39,6 +39,18 @@ export class SvgDocument {
     return TreeOwnership.remove(this, id);
   }
 
+  addTo(groupId: string, id: string): void {
+    TreeOwnership.addTo(this, groupId, id);
+  }
+
+  front(id: string): void {
+    TreeOwnership.front(this, id);
+  }
+
+  back(id: string): void {
+    TreeOwnership.back(this, id);
+  }
+
   clone(): SvgDocument {
     const copy = new SvgDocument(this.#width, this.#height);
     for (const root of this.roots) copy.insert(root.clone());

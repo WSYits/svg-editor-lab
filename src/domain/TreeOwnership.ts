@@ -81,6 +81,62 @@ export class TreeOwnership {
     return shape;
   }
 
+  static addTo(document: SvgDocument, groupId: string, id: string): void {
+    const target = this.findById(document, groupId);
+    if (!target) throw new Error(`no such container: ${groupId}`);
+    if (!this.#isGroup(target)) throw new Error(`not a container: ${groupId}`);
+    const shape = this.#requireShape(document, id);
+    if (this.nodes(shape).includes(target)) throw new Error('cannot create a parent-child cycle');
+    const owner = this.#requireOwner(document, shape);
+    const siblings = this.childrenOf(owner);
+    if (owner === target) {
+      if (siblings.at(-1) === shape) return;
+      const next = Object.freeze([...siblings.filter(child => child !== shape), shape]);
+      this.#members.set(owner, next);
+      return;
+    }
+    const targetChildren = this.childrenOf(target);
+    if (targetChildren.includes(shape)) throw new Error(`invalid owner: ${id}`);
+    const oldNext = Object.freeze(siblings.filter(child => child !== shape));
+    const newNext = Object.freeze([...targetChildren, shape]);
+    // All allocations and domain checks precede this commit. These are native
+    // WeakMap updates on genuine private maps, with validated object keys already
+    // present in each map: no invalid-key/receiver errors, coercion or user code.
+    // No observable async boundary occurs between writes. Process termination or
+    // runtime resource exhaustion is outside the recoverable domain-error contract.
+    this.#members.set(owner, oldNext);
+    this.#members.set(target, newNext);
+    this.#owners.set(shape, target);
+  }
+
+  static front(document: SvgDocument, id: string): void {
+    this.#reorder(document, id, true);
+  }
+
+  static back(document: SvgDocument, id: string): void {
+    this.#reorder(document, id, false);
+  }
+
+  static #reorder(document: SvgDocument, id: string, front: boolean): void {
+    const shape = this.#requireShape(document, id);
+    const owner = this.#requireOwner(document, shape);
+    const siblings = this.childrenOf(owner);
+    if ((front ? siblings.at(-1) : siblings[0]) === shape) return;
+    const remaining = siblings.filter(child => child !== shape);
+    const next = Object.freeze(front ? [...remaining, shape] : [shape, ...remaining]);
+    this.#members.set(owner, next);
+  }
+
+  static #requireOwner(document: SvgDocument, shape: Shape): GroupShape | SvgDocument {
+    const owner = this.#owners.get(shape);
+    if (owner === undefined ||
+        (owner !== document && (!this.#isGroup(owner) || this.findById(document, owner.id) !== owner)) ||
+        !this.childrenOf(owner).includes(shape)) {
+      throw new Error(`invalid owner: ${shape.id}`);
+    }
+    return owner;
+  }
+
   static #validateIncoming(roots: readonly Shape[], ids: Set<string>, forbidden?: Shape): void {
     const objects = new Set<Shape>();
     for (const root of roots) {
