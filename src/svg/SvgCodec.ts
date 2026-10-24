@@ -64,6 +64,8 @@ export class SvgCodec {
 
   decode(source: string): DecodedSvg {
     this.#checkBytes(source);
+    // Validate all source regions, including comments, before trusting the parser.
+    PreservedAttributes.assertXmlText(source);
     const root = this.#parse(source);
     const width = this.#dimension(root.attributes.width, 'width');
     const height = this.#dimension(root.attributes.height, 'height');

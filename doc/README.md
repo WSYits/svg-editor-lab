@@ -198,6 +198,7 @@ MAIN --> ConsoleTerminal
 - SvgCodec.decode(source) 返回冻结的 `{ document, warnings }` 外壳；document 是本次构建、归调用方所有的独立可编辑文档，非内部缓存；warnings 为冻结字符串数组。encode(document) 只返回 SVG 字符串，不修改输入。Codec 不访问文件、Session、History 或终端；导入失败不向外发布部分文档，也不输出暂存警告。
 - 新增精确依赖 saxes 6.0.0，传递依赖 xmlchars 2.2.0，均带许可证和锁文件完整性信息；安装审计和单独 npm audit --omit=dev 均报告 0 已知漏洞（不等于完整安全证明）。候选 @xmldom/xmldom 未安装：选择 saxes 是为了严格良构性、命名空间和流式事件中的深度/节点检查，不依赖恢复型 DOM 解析，也不调用私有 DOM handler。
 - 已检查 [saxes 官方 API 与声明](https://github.com/lddubeau/saxes)；其仓库已归档，这是后续依赖维护限制。旧声明与本项目 TS 7/exactOptionalPropertyTypes 不兼容，因此通过 node:module 的 createRequire 加局部 public API 类型适配加载；没有修改 node_modules、关闭类型检查或引入 any 业务对象。适配只声明所用事件/标签数据与 write/close，实际解析行为由持久成功/拒绝测试核对；包升级时必须重验适配。node:module 仅用于加载 XML 依赖，不是文件业务接口。
+- P2 整改后，decode 在字节上限检查之后，先用已有 assertXmlText 检查完整原始字符串，再交给解析器，避免非法代理码元藏在文本、CDATA 或注释中。错误主体统一为 invalid XML 1.0 character，在解析和领域文档构建前拒绝。该补充不改变支持子集或合法字符范围。
 - XML 解析完全交给依赖；编码只生成本项目受控元素与属性，并集中进行 XML 1.0 字符校验、文本/属性转义。没有自行实现完整 XML 解析器或通用 XML DOM。
 
 **独立属性与复制**
@@ -308,6 +309,9 @@ MAIN --> ConsoleTerminal
 27. **5A 验收与 5B 授权**：用户确认 1bbdd76 专项审查无 P1/P2/P3，批准纯字符串 Codec、安全保留属性和相关回归；强调 XML schema 不能套用 CLI 位置参数，保留属性不能进入回滚集合，5C/5D 不得提前实现。
 28. **5B 依赖与实现**：AI 比较 DOM 与事件式解析方案，选 saxes 以在解析中检查资源限制；如实记录归档状态与旧类型声明兼容问题，采用局部类型适配而非降低 tsconfig 严格度。独立保留值对象和公共复制钩子完成最小领域扩展，树维护与应用执行链路不变。
 29. **5B 测试纠错与加固**：第一批 Codec 测试中，非法 XML 字符测试尚残留上一断言的非法 paint，导致先报 paint 而非预期字符错误；修正测试前置状态后通过。额外临界测试发现编码节点计数与解析器的声明后空白/文本计数不一致，统一为根外格式空白不计、元素内文本计数，并固化往返临界回归。全部实际任务 SVG 样例、严格拒绝、元数据历史与失败回滚纳入测试。
+
+30. **5B P2 复现与最小整改授权**：用户确认 cd3ba11 审查发现一项 P2：实际孤立高代理码元后接 A 在 text/CDATA 中被 saxes 接受，返回的文档随后无法编码；注释中的同类非法输入被接受后丢弃。用户只批准独立修复，不重写 cd3ba11，不进入 5C/5D。
+31. **先失败后修复**：先新增 svg-xml-characters.test.ts（16 项），尚未修改 SvgCodec/PreservedAttributes 时，类型检查和构建通过，专项执行 7 通过、9 失败。text/CDATA/注释的 U+D800+A 均为 Missing expected exception；另有两高代理项未拒绝、部分非法序列错误文案不稳定，以及“解析器不得执行”断言失败。随后仅在 decode 字节检查后补入现有字符校验调用，专项变为 16/16 通过。
 
 ## 三、一致性自查
 
@@ -442,6 +446,15 @@ git status --short
 - 保留属性测试覆盖六类型 clone、根 clone、输入/输出隔离、原子替换失败、嵌套组后部溢出回滚（保留身份/几何/属性/结构）、group/ungroup/addTo/front/back、删除重插、Service Undo/Redo 和同 id 的私有历史版本隔离。原 P1、领域、Command 原子性和 CLI 全部回归继续通过。
 - 任务书五个完整 SVG 样例和两个内存会话的状态已分别核对，结果见架构方案兼容表；真实文件 IO、read/save、浏览器渲染和 REPL 尚未执行，不宣称已完成。
 - 已实际运行 npm run typecheck、npm run build、npm test、npm start、git diff --check，全部通过；569 项测试通过、0 失败。任务书 SHA-256 与初始化记录相同。新增 saxes/xmlchars 是唯一依赖变化，不提交生成物；不修改任务书、TreeOwnership、应用状态层、Dispatcher、十种 Command 或 main，不推送、不打标签。
+
+### 5B P2 XML 字符整改验证记录
+
+- 根因是 decode 信任解析器的字符检查，未调用已有完整字符串校验；saxes 6 在高代理项处理处未先验证下一码元为低代理项，部分非法 UTF-16 序列绕过解析。未修改依赖或 node_modules，只在 SvgCodec.decode 的字节检查后、parse 前加入 PreservedAttributes.assertXmlText(source)。
+- 已对照 [XML 1.0 §2.2 Char](https://www.w3.org/TR/xml/#charsets)：允许 U+0009/U+000A/U+000D、U+0020–U+D7FF、U+E000–U+FFFD、U+10000–U+10FFFF。现有实现的 for…of 按码点迭代，合法高低代理对合并为补充平面码点，孤立/错序代理项保留为代理范围值并拒绝；函数本身无须修改，字符接受范围未改变。
+- 专项 16 项使用 String.fromCharCode 构造实际代理码元（并检查 charCodeAt），覆盖 text/CDATA/注释、高/低孤立码元、字符串末尾、逆序及连续高代理项；通过公开解析 API 和文档初始化 mock，确认非法字符时两者均未调用。另验证字节上限错误仍优先。
+- 合法 ASCII、中文、显式 emoji 代理对、混合多字节字符及补充平面上下边界均完成 decode→encode→decode，比较文本、几何、属性、画布及顺序；XML Char 范围边界测试确认已有校验行为。
+- 修复前专项 7 通过/9 失败；修复后专项 16 通过/0 失败。全部测试 585 通过/0 失败，原 569 项（含 DTD/实体/命名空间/数值/保留属性/归属/Command/CLI）继续通过。npm run typecheck、npm run build、npm test、npm start、git diff --check 均实际通过；任务书 SHA-256 与初始化记录相同，受保护源码和依赖差异为空。
+- 原 cd3ba11 不改写，仅新增独立本地修复提交；本轮范围为 Codec 输入调用、专项测试、AGENTS 与本文。5B 仍待用户复验，真实文件 IO/UTF-8 字节解码、read/save 和 REPL 未实现，不据此声明跨文件系统一致性或浏览器兼容性已验证。
 
 ### 后续验收范围
 
