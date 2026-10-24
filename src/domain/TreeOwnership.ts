@@ -175,6 +175,30 @@ export class TreeOwnership {
     return group;
   }
 
+  static ungroup(document: SvgDocument, id: string): GroupShape {
+    const group = this.#requireShape(document, id);
+    if (!this.#isGroup(group)) throw new Error(`not a container: ${id}`);
+    const owner = this.#requireOwner(document, group);
+    if (owner === document) throw new Error(`cannot ungroup top-level container: ${id}`);
+    const children = this.childrenOf(group);
+    for (const child of children) {
+      if (this.#requireOwner(document, child) !== group) throw new Error(`invalid owner: ${child.id}`);
+    }
+    const next = Object.freeze(this.childrenOf(owner).flatMap(child => child === group ? children : [child]));
+    const empty: readonly Shape[] = Object.freeze([]);
+
+    // All checks, traversal and candidate allocation precede this commit.
+    // Native private WeakMaps use existing valid object keys; set/delete do not
+    // coerce keys or invoke domain behavior. Frozen arrays are replaced, not
+    // mutated. No recoverable domain errors remain between these writes;
+    // runtime resource exhaustion/termination or modified built-ins are excluded.
+    this.#members.set(owner, next);
+    this.#members.set(group, empty);
+    for (const child of children) this.#owners.set(child, owner);
+    this.#owners.delete(group);
+    return group;
+  }
+
   static #containerPath(document: SvgDocument, shape: Shape): (GroupShape | SvgDocument)[] {
     const path: (GroupShape | SvgDocument)[] = [];
     let owner = this.#requireOwner(document, shape);
