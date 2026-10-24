@@ -1,5 +1,7 @@
 # Phase 1 工程记录
 
+**GitHub 仓库地址：** [https://github.com/WSYits/svg-editor-lab](https://github.com/WSYits/svg-editor-lab)
+
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
 当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留及 P2 字符校验修复，并接入 5C 同步 FileStore、真实 read/save 与历史边界；现已完成 5D 的 Terminal/ConsoleTerminal、真实 REPL、19 个命令接线与进程级集成。`npm run cli` 先构建再启动交互程序，`npm start` 使用已构建入口；box 和插件不属于 Phase 1。Phase 1 最终综合验收已于 2026-10-24 通过，对应功能版本为 21ca5dc；main 的文档整改基线 266b7a4 已同步 GitHub；根目录 README 整改将形成新的交付候选提交，该新提交的推送与 final 标签仍等待用户后续授权。
