@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。命令系统、SVG 编解码、Undo/Redo、box 和插件功能均未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 的 EditorSession/HistoryManager 状态与快照历史基础；命令级 Undo/Redo、EditorService、Command、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的 EditorSession/HistoryManager；不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -128,6 +128,19 @@ MAIN --> ConsoleTerminal
 - 提升仅减少一层祖先关系，不添加对象/id，也不改变子树内部关系，因此保持唯一 id、单一归属和无环。查询遍历最终树，不存在独立索引更新。旧冻结数组仍是操作前快照。
 - 跨父级 group 后 ungroup 只提升到当前父级，不恢复历史归属；Undo/Redo 尚未实现。与重挂一样，只保证显式属性与几何保持，不承诺继承样式或视觉层叠外观不变，不为此提前实现 SVG 样式计算。
 
+### 4A 实际会话与快照历史基础
+
+- **依据与边界**：任务书 §2 的失败不变、§4.3 的历史单元/禁用规则，以及已确认 D1、第四轮规划。4A 只准备状态，不执行编辑、文档命令或 IO；4B 才接入 EditorService 与 Command。领域层和启动入口均未修改。
+- EditorSession 用私有只读字段保存文档及 defaultSavePath；构造时对输入文档 clone 一次，getDocumentSnapshot 每次返回独立 clone。hasDocument/defaultSavePath 只返回原始值，没有可写文档、路径 setter 或历史字段。准备下一会话直接构造新值，不修改原会话。
+- **设计假设/接口选择**：无文档会话不允许带默认路径，避免孤立路径；路径暂按原始字符串保存，不做文件存在性、可写性或路径规范化。该状态约束不是任务书直接规定。新建无参数会话不等于执行 init。
+- HistoryManager 构造为双空栈且未禁用；私有 #past/#future 保存文档快照，#disabled 与空栈分开。只公开计数、canUndo/canRedo/disabled 及完整转换，不暴露栈或原始快照。没有当前文档、路径、领域编辑或 IO 职责。
+- recordEdit(before) 对编辑前文档 clone 一次，返回过去栈追加快照、未来栈清空、解除禁用的新管理器；调用者必须在编辑成功后使用。它不验证是否真正发生编辑，也不提交文档。合法无变化编辑沿用已有假设仍应记录。
+- prepareUndo(current)/prepareRedo(current) 先检查禁用与空栈，再分别 clone 恢复目标、当前文档，准备新的两栈，最后返回只读 HistoryTransition { document, history }。document 是可编辑的独立输出副本，不是历史内部对象；结果外壳冻结只防止字段替换，不用于宣称文档深度不可变。原 HistoryManager 始终不变，失败不需回滚。
+- **复制与所有权**：每次入栈产生一个新快照；每次恢复产生一个独立输出及一个当前文档快照。新历史版本只复制栈数组，未弹出的旧快照可在版本之间私有复用，因为所有 API 都不修改或泄漏这些对象；不同记录的捕获互不共享可变文档。私有工厂不接收外部裸快照，不新增公开接管 token。冻结数组仅辅助保护序列，真正隔离由 clone 与私有字段保证。
+- resetBoundary() 仅返回清空且禁用的新历史值，不修改原值、不读写会话或文件，也不是 read/save 假成功入口。未禁用空栈抛 nothing to undo/nothing to redo，禁用抛任务书消息主体 undo not allowed after io command；不打印、不添加 CLI 前缀。空栈文案属于设计选择。
+- SvgDocument.clone 通过现有 GroupShape/叶子 clone 和文档插入重新建立独立 TreeOwnership 归属；相同 id 在不同快照文档中合法。应用层跨快照不保证 JavaScript 对象身份延续，调用方应按 id 查询；不改变领域单次结构操作保留身份的契约。
+- **未来统一提交**：EditorService 私有持有会话与历史的组合，准备 Command 结果、下一会话和历史后一次发布；本轮没有该协调器，也没有验证命令执行与会话/历史发布的原子性。向 EditorSession 交付恢复文档仍经过构造复制，防止公开的 HistoryTransition.document 引用污染正式会话，不通过公开接管接口减少这次必要复制。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -184,14 +197,17 @@ MAIN --> ConsoleTerminal
 15. **3B 审查与 3C 授权**：用户确认 3B 只读专项审查无 P1/P2/P3，批准仅实现领域解组；明确顶层禁止、只解一层、原组游离且清空，以及跨父级分组不靠解组恢复旧父级。
 16. **3C 实现与验证**：AI 沿用 TreeOwnership 统一成员/归属维护，在准备所有候选后提交；未改变叶子几何或添加类型名分派。新增 18 项解组专项测试，以首/中/末和空/单/多成员九种组合检查对象身份、几何与显式属性，并测试失败不变、游离组重用、直接管理器隔离及后续组合操作。
 
+17. **第三轮验收与第四轮规划**：用户确认第三轮综合验收通过且 4ac7f3c 已推送，main 与 origin/main 同步。用户原则上接受 4A–4D 四轮计划、快照替换不保留跨提交引用、编辑 Command 不维护逆操作及 init 清除默认路径等选择，随后只授权 4A。
+18. **4A 实现与测试**：AI 新增两个应用层类，采用不修改原值的历史转换与显式复制边界，没有增加 Service、Command 或领域修改。首轮 23 项专项测试有一项误用随后会被修改的输入作为预期基准；运行暴露断言错误后改为独立预期副本，并加强失败后不同栈内容的恢复断言，无需改变类实现。修正后专项测试全部通过。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 3C 仅扩展 SvgDocument/TreeOwnership，新增 ungroup 专项测试，未新增业务类或模块 |
-| 一类一文件 | 十个领域类分别在同名文件；main.ts 与测试回调采用已批准例外 |
-| 依赖方向 | domain 仅依赖内部类，无 IO/XML/应用层依赖；启动入口未接入业务；类型创建分派仅位于 ShapeFactory |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；Command 和历史尚未实现 |
+| 目录与方案 | 4A 新增 application/EditorSession 与 HistoryManager 及两份顶层测试；未预创建后续模块或占位类 |
+| 一类一文件 | 十个领域类和两个应用类分别在同名文件；HistoryTransition 为同文件只读结果接口；main.ts 与测试回调采用已批准例外 |
+| 依赖方向 | application 两类仅以类型依赖 SvgDocument，无 IO/XML/CLI；domain 不反向依赖 application；启动入口未接入业务；类型名创建分派仍仅在 ShapeFactory |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；快照历史转换基础已实现，Command、Service 与命令级 Undo/Redo 尚未实现 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -268,6 +284,14 @@ git status --short
 - npm run typecheck、npm run build、npm test、npm start 全部通过；总计 161 项测试通过，0 失败，原 143 项（含 TreeOwnership P1、3A、3B 和连续场景）继续通过。断言包含逐位置引用、显式属性/几何快照、归属、查询及失败后冻结成员快照保持。
 - git diff --check 通过；任务书 SHA-256 仍为初始化记录值。任务书、依赖、Shape/GroupShape、五个叶子类和 ShapeFactory 均未修改。生成物不提交；本轮只创建独立本地提交，不推送、不打标签，不进入后续模块。
 - 尚未验证应用命令、历史恢复或 SVG 输出；这些不属于本轮范围。当前未发现必须在第三轮最终验收前整改的已知结构一致性问题，仍待用户专项审查与第三轮最终验收。
+
+### 4A 验证记录
+
+- 新增 editor-session.test.ts（9 项）和 history-manager.test.ts（14 项），共 23 项。覆盖无文档/默认路径、输入输出隔离、六种内置类型的嵌套树、顺序、几何/文字/显式属性和缺省样式、独立归属、双栈转换、旧历史分支可用及禁用/空栈区别。
+- 使用 node:test 的方法 mock 在输入捕获、恢复目标克隆及当前文档捕获阶段注入异常；检查状态不变并重试恢复实际内容，不只检查计数或抛错。未通过类型强转或读取私有栈绕过封装。
+- npm run typecheck、npm run build、npm test、npm start 均实际通过；184 项测试通过、0 失败，原 161 项全部继续通过。git diff --check 通过；任务书 SHA-256 保持初始化记录值。
+- 未修改领域层、任务书、依赖配置或启动入口；不提交 dist/node_modules。只创建本轮独立本地提交，不推送、不打标签。
+- 本轮验证范围是会话值与历史转换准备，不证明未来 Command 执行与当前文档/历史统一发布的原子性；后者留待 4B。当前不限制历史容量，不支持任意自定义 clone 契约、持久化历史或 IO 成功状态。
 
 ### 后续验收范围
 

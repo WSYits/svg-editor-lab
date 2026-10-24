@@ -2,8 +2,8 @@
 
 ## 当前范围与依据
 
-- 本项目按用户批准的迭代增量推进。当前仅获准 3C：领域 ungroup 安全解组及专项回归，完成验证及一次本地提交后停止，不推送、不打标签。
-- 本轮仅实现领域解组，不开发 CLI、Command、SVG 文件读写或 Undo/Redo。
+- 本项目按用户批准的迭代增量推进。当前仅获准 4A：EditorSession 与 HistoryManager 的状态基础和单元测试，完成验证及一次本地提交后停止，不推送、不打标签。
+- 本轮不实现 EditorService、Command、CLI、SVG 编解码、文件 IO、init/canvas 实际命令或新领域功能；历史转换基础不代表已完成命令级 Undo/Redo。
 - `requirements/phase1.md` 是任务书，不得修改。用户确认决策与设计假设记录在 `doc/README.md`，不得冒充任务书硬性要求。发现冲突应说明并澄清。
 - 不一次性实现全部功能，不提前实现 box、插件体系、GUI 或其他后续阶段功能。
 - 不自动创建子代理或扩大任务范围。保留用户已有文件和修改。
@@ -20,6 +20,8 @@
 - ShapeFactory 属于 domain，CLI 创建与 SVG 导入共用唯一图形类型创建入口。
 - 按名字选择行为只允许 CommandDispatcher 和 ShapeFactory 两处，文档中标为待重构点。属性校验不得隐藏额外的类型行为分派。
 - Command 封装执行行为；EditorService 统一协调候选文档和提交；EditorSession 保存当前文档及路径；HistoryManager 管理历史。不要重复增加事务协调层。
+- EditorSession 只封装文档与默认路径，输入和输出通过 clone 隔离；HistoryManager 只管理过去/未来栈及禁用状态，转换返回新值。历史内部快照不得暴露或修改；可在不可变历史版本间私有复用旧快照，不得用公开接管 token 绕过复制边界。
+- Undo/Redo 先完成恢复副本、当前快照与新历史的全部准备；后续 EditorService 才负责把会话与历史统一发布，不先 pop 再克隆，不增加重复事务协调层。
 - 遵循 Composite：容器和叶子共享操作契约，通过多态实现 move、scale、set 等行为。
 
 ## 正确性与兼容性
