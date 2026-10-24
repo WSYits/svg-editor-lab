@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础及 4B 的 EditorService、Move/Scale/SetAttribute Command 和这三种编辑的 Undo/Redo；4C 的创建/删除/树编辑 Command、4D 的 init/canvas、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；4D 的 init/canvas、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和三个几何/属性 Command；不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command；不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -62,7 +62,7 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **已落地范围**：Move/Scale/SetAttribute Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。其他编辑 Command、CLI 分发与文档操作仍待后续迭代。
+- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。CLI 分发与文档操作仍待后续迭代。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
 - 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 或插件框架；当前规模不需要这些层次。
@@ -154,6 +154,18 @@ MAIN --> ConsoleTerminal
 - **接口选择/设计假设**：构造时可接收已存在的 Session/History，便于后续启动接线和本轮测试；无文档不得带非空历史。默认路径不变，Service 没有初始化、调整画布或 IO 成功入口。HistoryStatus 只读返回两栈计数、禁用和可执行状态。
 - 本轮验证到实际候选执行与会话/历史一起发布；未执行 4C 的树编辑 Command，未实现文档历史边界的真实 init/read/save/canvas 行为。此前 4A 段落中的“未来 Service”描述保留为该迭代范围说明，以本段为当前状态。
 
+### 4C 实际创建与树编辑 Command
+
+- 新增 commands 下 CreateCommand、DeleteCommand、GroupCommand、UngroupCommand、AddToCommand、FrontCommand、BackCommand 七个同名类文件，均继承现有 Command。没有修改 EditorService、Command 契约、Session/History、既有几何 Command 或任何领域实现；执行、失败隔离、单次提交、Undo/Redo 全部复用 4B 链路。
+- CreateCommand(type, id, attributes = {}, parentId?) 在构造时复制并冻结属性字典，属性值沿用 string/number 领域契约，浅复制即隔离；类型、id、父容器 id 按值保存。每次 execute 都用 ShapeFactory 创建新图形，再调用候选文档 insert，省略父容器即根级；不缓存图形或引入第二处图形类型名分派。
+- GroupCommand(newId, ids) 构造时复制并冻结 id 列表，执行时交给候选文档 group 按既定公共祖先/操作前顺序规则处理，不在 Command 重写树算法。Delete/Ungroup/AddTo/Front/Back 分别调用候选文档对应完整操作，只保存原始值 id，查询及归属检查由现有领域 API 保证；局部节点引用仅用于生成字符串摘要，不保留或返回。
+- **复用语义**：每次按当前候选状态执行。Create/Group 若新 id 已存在，Delete/Ungroup 若目标已不存在，均以领域错误拒绝；Undo 恢复前提后可重新执行同一对象。Create 在不同文档执行也产生独立节点，失败创建后重试不会复用临时节点。AddTo/Front/Back 已在目标位置仍合法成功并记录一个编辑单元。
+- CommandResult 沿用稳定字符串数据，未增加可变集合、文档、Shape 或回调。命令不读写历史，不实现逆操作；结构方法返回值只在 execute 中临时使用。默认保存路径通过 Service 原样保持。
+- **快照验收**：每项成功结构编辑先记录完整树，再 Undo 比较画布、类型、属性（包括未设置样式）、层级、兄弟顺序及全文档查询/归属；每个恢复对象与外部旧快照均不同。Group/ Ungroup 各只增一个历史单元。跨父级 group 的 Undo 恢复各原父级，而后续 ungroup 仅提升到当前父级，两者不是互逆。
+- 新增一条十步混合序列，覆盖七种新 Command、属性修改、嵌套子树删除及删除后复用旧 id；逐步 Undo/Redo 对照所有中间树。测试还让 GroupCommand.execute 和文档 group/ungroup 在首次执行后抛错，确认历史恢复不重执行命令或模拟逆操作。
+- 失败矩阵包括未知类型/box、创建 id/属性/几何/父级错误、非法 group 选择、顶层或非组解组、重挂循环和缺失排序目标。均在已有 Redo 分支上检查文档、路径、双栈及禁用状态保持，并实际 Redo 验证内容；失败不抹掉原分支。
+- 当前只完成编辑 Command；文档历史边界实际操作、CLI 参数解析和 SVG/IO 仍未实现。既有四次文档级 clone 策略和同步执行边界不变，未增加插件或新抽象。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -216,14 +228,17 @@ MAIN --> ConsoleTerminal
 19. **4A 审查与 4B 授权**：用户确认 46cd354 专项审查无 P1/P2 阻塞，批准仅实现三个几何/属性 Command 和执行链路；要求候选引用逃逸、结果准备和全部历史失败不能影响正式状态。
 20. **4B 实现与验证**：AI 沿用 4A 不可变状态基础，以单次私有组合替换提交。发现恢复操作需在复制前判断禁用/空栈，故给 HistoryManager 加共用校验的只读断言，未重新设计状态层。补充同步重入拒绝；新增 48 项专项测试首轮类型检查、构建和执行均通过，包含命令/结果/历史/会话准备失败与克隆阶段故障注入。
 
+21. **4B 审查与 4C 授权**：用户确认 ad4307b 专项审查无 P1/P2 阻塞，批准仅新增七种创建/树编辑 Command；重点要求新建对象不可复用归属、集合参数复制，以及复杂树的历史恢复。
+22. **4C 实现与专项验证**：AI 复用现有 Service 和领域接口，没有发现必须调整的接入问题。七个 Command 只封装调用，不重复树算法；新增 structure-commands 专项测试首轮 65 项通过，随后补充文档根为公共容器的分组和解组保留嵌套组两项，共 67 项通过。每次恢复检查序列、属性、归属、查询及对象独立性，避免把 ungroup 等同 Undo。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 4B 仅扩展 application，新增 Service/Result/Command 契约及三个具体 Command 和两份测试；未创建 4C/4D 或其他模块 |
+| 目录与方案 | 4C 仅新增 application/commands 下七个具体类及一份专项测试；沿用 Service/History 和领域结构，无 4D 或其他模块实现 |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
 | 依赖方向 | application 仅依赖自身和 domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；三种几何/属性 Command、Service 与对应 Undo/Redo 已实现；其余 Command 和文档命令边界尚未实现 |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；文档命令边界尚未实现 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -317,6 +332,14 @@ git status --short
 - npm run typecheck、npm run build、npm test、npm start 均实际通过；232 项测试通过、0 失败，原 184 项全部继续通过。git diff --check 通过，任务书 SHA-256 与初始化记录一致。
 - HistoryManager 只新增共用校验的只读前提断言，EditorSession 仅更新注释；领域层、任务书、依赖、配置和启动入口均未修改。提交前检查暂存范围，排除生成物；只创建一次本地提交，不推送、不打标签。
 - 本轮支持同步可信编辑 Command；不支持异步 Command 或不遵守领域 clone 契约的任意扩展。通用 Undo/Redo 摘要和当前快照成本已记录；没有发现必须在 4C 前解决的已知状态一致性问题，仍待用户专项审查。
+
+### 4C 验证记录
+
+- 新增 structure-commands.test.ts 共 67 项：六类型根级/容器创建，字典/列表参数隔离，新对象归属，命令复用，叶子/子树删除，同父及跨父/深度/文档根分组，空/单/多成员及保留嵌套组的解组，重挂/排序和历史恢复。
+- 26 类非法结构操作分别在 Undo 后的 Redo 分支上验证失败不变并实际重做；另覆盖禁用状态失败不解禁、成功新结构编辑清 Redo、合法无变化重挂/排序记录历史。十步混合序列逐次比较所有 Undo/Redo 中间状态，检查独立对象、类型、属性、id、顺序和 TreeOwnership 归属。
+- npm run typecheck、npm run build、npm test、npm start 均实际通过；299 项测试通过、0 失败，原 232 项（含 P1 及 2A–4B）全部继续通过。git diff --check 通过，任务书 SHA-256 保持初始化记录值。
+- 仅新增七个 Command 类和一份专项测试、更新 AGENTS/doc；Service、Session/History、契约、结果类、几何 Command、领域层、任务书、依赖和启动入口均未修改。提交前检查暂存范围，不提交生成物；只创建一次本地提交，不推送、不打标签。
+- 仍未实现 4D 文档操作或任何 CLI/SVG/IO；沿用同步 Command、完整快照和通用 Undo/Redo 摘要限制。未发现必须在 4D 前解决的已知接入或状态一致性问题，仍待用户专项审查。
 
 ### 后续验收范围
 
