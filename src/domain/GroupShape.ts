@@ -28,7 +28,7 @@ export class GroupShape extends Shape {
 
   clone(): GroupShape {
     const copy = new GroupShape(this.id, this.children.map(child => child.clone()));
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

@@ -40,7 +40,7 @@ export class CircleShape extends Shape {
 
   clone(): CircleShape {
     const copy = new CircleShape(this.id, this.#geometry.cx, this.#geometry.cy, this.#geometry.r);
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

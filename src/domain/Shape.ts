@@ -1,9 +1,12 @@
+import { PreservedAttributes } from './PreservedAttributes.js';
+
 export type AttributeValue = string | number;
 
 /** Common behavior without assuming any particular geometric fields. */
 export abstract class Shape {
   readonly #id: string;
   #styles: Record<string, AttributeValue> = {};
+  #preserved = new PreservedAttributes();
 
   protected constructor(id: string) {
     if (typeof id !== 'string' || id.trim().length === 0) {
@@ -28,6 +31,13 @@ export abstract class Shape {
 
   getAttributes(): Readonly<Record<string, AttributeValue>> {
     return Object.freeze({ id: this.id, ...this.getOwnAttributes(), ...this.#styles });
+  }
+
+  getPreservedAttributes(): Readonly<Record<string, string>> { return this.#preserved.values; }
+
+  setPreservedAttributes(attributes: Readonly<Record<string, string>>): void {
+    const next = new PreservedAttributes(attributes);
+    this.#preserved = next;
   }
 
   getAttribute(attribute: string): AttributeValue | undefined {
@@ -67,7 +77,8 @@ export abstract class Shape {
     if (factor <= 0) throw new Error('scale factor must be positive');
   }
 
-  protected copyStylesTo(target: Shape): void {
+  protected copyCommonStateTo(target: Shape): void {
     target.#styles = { ...this.#styles };
+    target.#preserved = new PreservedAttributes(this.#preserved.values);
   }
 }

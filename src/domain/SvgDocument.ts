@@ -1,3 +1,4 @@
+import { PreservedAttributes } from './PreservedAttributes.js';
 import { Shape } from './Shape.js';
 import type { GroupShape } from './GroupShape.js';
 import { TreeOwnership } from './TreeOwnership.js';
@@ -5,6 +6,7 @@ import { TreeOwnership } from './TreeOwnership.js';
 export class SvgDocument {
   #width: number;
   #height: number;
+  #preserved = new PreservedAttributes({}, true);
 
   constructor(width = 800, height = 600) {
     this.validateSize(width, height);
@@ -16,6 +18,13 @@ export class SvgDocument {
   get width(): number { return this.#width; }
   get height(): number { return this.#height; }
   get roots(): readonly Shape[] { return TreeOwnership.childrenOf(this); }
+
+  getPreservedAttributes(): Readonly<Record<string, string>> { return this.#preserved.values; }
+
+  setPreservedAttributes(attributes: Readonly<Record<string, string>>): void {
+    const next = new PreservedAttributes(attributes, true);
+    this.#preserved = next;
+  }
 
   resize(width: number, height: number): void {
     this.validateSize(width, height);
@@ -61,6 +70,7 @@ export class SvgDocument {
 
   clone(): SvgDocument {
     const copy = new SvgDocument(this.#width, this.#height);
+    copy.setPreservedAttributes(this.#preserved.values);
     for (const root of this.roots) copy.insert(root.clone());
     return copy;
   }

@@ -43,7 +43,7 @@ export class RectShape extends Shape {
 
   clone(): RectShape {
     const copy = new RectShape(this.id, this.#geometry.x, this.#geometry.y, this.#geometry.width, this.#geometry.height);
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

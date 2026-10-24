@@ -2,8 +2,8 @@
 
 ## 当前范围与依据
 
-- 本项目按用户批准的迭代增量推进。当前仅获准 5A：CLI 解析、查询与展示基础，完成验证及一次本地提交后停止，不推送、不打标签。
-- 本轮仅实现 Tokenizer、CommandDispatcher、Presenter、应用查询投影与工厂创建描述；不实现 REPL、SVG 编解码、read/save、文件 IO、保留属性或插件，不修改正式启动入口。
+- 本项目按用户批准的迭代增量推进。当前仅获准 5B：SVG 字符串编解码与安全属性保留，完成验证及一次本地提交后停止，不推送、不打标签。
+- 本轮仅实现 SvgCodec、独立保留属性及复制支持和相关测试；不接入 read/save、文件 IO、REPL 或插件，不修改 Dispatcher、应用执行链路或正式启动入口。
 - `requirements/phase1.md` 是任务书，不得修改。用户确认决策与设计假设记录在 `doc/README.md`，不得冒充任务书硬性要求。发现冲突应说明并澄清。
 - 不一次性实现全部功能，不提前实现 box、插件体系、GUI 或其他后续阶段功能。
 - 不自动创建子代理或扩大任务范围。保留用户已有文件和修改。
@@ -28,6 +28,9 @@
 - 具体 Command 的原始值参数按值保存；Create 属性字典与 Group id 列表在构造时复制并冻结（值均为原始值）。Create 每次执行经 ShapeFactory 创建新对象；所有 Command 均不缓存跨执行的 Shape。结果只含字符串，不暴露文档、Shape 或回调。
 - CLI 的命令名只在 CommandDispatcher 注册一次；help 复用注册目录，创建参数帮助从工厂描述生成。Tokenizer 只分词；Presenter 只格式化，统一添加 error: 前缀；Dispatcher 以词法错误、未知命令、已知命令无文档门禁、语法/业务校验的顺序处理。
 - tree/show 通过 Service 的递归冻结值投影展示，不向 CLI 交付 Shape/SvgDocument。查询不改变历史；格式化只读这些值，不按图形类型分派业务。
+- SVG 按命名空间与 XML 良构性严格验证；使用工厂独立的 XML 属性/内容描述，不能按 CLI 参数位置解释 XML。图形创建经 ShapeFactory，结构经文档接口，不绕过 TreeOwnership。
+- 保留属性使用 PreservedAttributes 白名单验证、独立冻结存储；不得并入 getAttributes/setAttribute 回滚集合。节点及文档 clone 必须复制保留属性，不用按 id 的外部旁路缓存。
+- Codec 无文件或应用状态访问，不打印；每次 decode 返回独立文档与冻结警告。拒绝 DTD/PI/外部引用、不支持的 transform/CSS/结构/单位/坐标映射，限制 UTF-8 字节、解析节点及深度；不能静默删除影响语义的数据。
 - 遵循 Composite：容器和叶子共享操作契约，通过多态实现 move、scale、set 等行为。
 
 ## 正确性与兼容性

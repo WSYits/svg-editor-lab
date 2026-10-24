@@ -43,7 +43,7 @@ export class LineShape extends Shape {
 
   clone(): LineShape {
     const copy = new LineShape(this.id, this.#geometry.x1, this.#geometry.y1, this.#geometry.x2, this.#geometry.y2);
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

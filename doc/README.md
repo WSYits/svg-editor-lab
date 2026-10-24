@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；REPL、SVG 编解码、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留；REPL、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter；不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter、svg 的 SvgCodec；domain 增加安全保留属性值对象，不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -65,7 +65,7 @@ MAIN --> ConsoleTerminal
 - **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。内存文档操作已有独立 Service 入口；CLI 内存命令分发与展示已实现，REPL 与真实文件操作仍待后续迭代。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
-- 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。
+- 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。5B 的 PreservedAttributes 是有白名单校验职责的不可变值对象，不是事务层或插件框架。
 
 ### 2A 实际领域契约
 
@@ -191,6 +191,49 @@ MAIN --> ConsoleTerminal
 - **帮助和错误**：help 从同一命令注册目录生成，并由工厂描述生成六类型创建参数说明。Presenter 统一添加一次 error:，摘要和错误控制字符转义为单行，树/属性文本也转义控制字符，防止输出注入；Service/领域仍不加前缀。成功提交后的格式化/未来终端故障不属于可回滚的编辑失败。
 - **性能边界**：查询为隔离复用现有 clone，不增加索引或缓存。当前投影查父级存在重复遍历，接受小文档成本；不为提前优化开放内部文档引用。后续保留属性和 XML 支持留到 5B，真实 IO 留到 5C，REPL/main 接线留到 5D。
 
+### 5B 实际 SVG 编解码与安全保留
+
+**契约与依赖**
+
+- SvgCodec.decode(source) 返回冻结的 `{ document, warnings }` 外壳；document 是本次构建、归调用方所有的独立可编辑文档，非内部缓存；warnings 为冻结字符串数组。encode(document) 只返回 SVG 字符串，不修改输入。Codec 不访问文件、Session、History 或终端；导入失败不向外发布部分文档，也不输出暂存警告。
+- 新增精确依赖 saxes 6.0.0，传递依赖 xmlchars 2.2.0，均带许可证和锁文件完整性信息；安装审计和单独 npm audit --omit=dev 均报告 0 已知漏洞（不等于完整安全证明）。候选 @xmldom/xmldom 未安装：选择 saxes 是为了严格良构性、命名空间和流式事件中的深度/节点检查，不依赖恢复型 DOM 解析，也不调用私有 DOM handler。
+- 已检查 [saxes 官方 API 与声明](https://github.com/lddubeau/saxes)；其仓库已归档，这是后续依赖维护限制。旧声明与本项目 TS 7/exactOptionalPropertyTypes 不兼容，因此通过 node:module 的 createRequire 加局部 public API 类型适配加载；没有修改 node_modules、关闭类型检查或引入 any 业务对象。适配只声明所用事件/标签数据与 write/close，实际解析行为由持久成功/拒绝测试核对；包升级时必须重验适配。node:module 仅用于加载 XML 依赖，不是文件业务接口。
+- XML 解析完全交给依赖；编码只生成本项目受控元素与属性，并集中进行 XML 1.0 字符校验、文本/属性转义。没有自行实现完整 XML 解析器或通用 XML DOM。
+
+**独立属性与复制**
+
+- domain/PreservedAttributes 统一验证并冻结 string 值字典；Shape/SvgDocument 私有保存该值，getPreservedAttributes 只读，setPreservedAttributes 完整验证后整体替换，失败不影响旧值。节点不能保留 id/几何/公共可编辑样式来覆盖核心状态；根级可额外保留 fill/stroke/stroke-width，因为根没有图形编辑 setter。
+- 白名单：font-size（有限非负数或 px）、font-family（非空且拒绝 CSS 转义/函数/规则字符）、font-weight（normal/bold/bolder/lighter 或 100–900 整百）、text-anchor（start/middle/end）、三个 opacity（有限 0–1）、小写 ASCII data-*，以及 xml:space（default/preserve）。data-* 只作为不解释的惰性数据，包括 data-kind；不注册插件、不恢复 box。
+- 这些值完全不进入 getAttributes/getAttribute/setAttribute；CLI set 仍报 unknown attribute。公共复制钩子改名 copyCommonStateTo，在原样式复制外复制保留字典，六种 clone 仅改这一调用；文档 clone 同样复制根属性。GroupShape 的有效 setter 快照和几何算法不变，没有将保留属性放入回滚集合。
+- 属性属于具体节点而非按 id 的全局表，重挂、排序、分组、解组及删除重插自然随节点保持。被解散组的自身属性随游离空组保留，不自动传播到提升的成员；与已确认结构语义一致，不承诺保持继承样式外观。完整文档快照自然覆盖元数据，相同 id 的不同历史文档不共享可变状态。
+- 现有 QueryView 仍展示可编辑属性；保留属性通过独立领域只读接口与 Codec 访问，本轮未修改 CLI 展示投影。后续若展示这些属性，应明确只读身份，不扩大 set 白名单。
+
+**XML 与 SVG 支持边界（设计策略，不是完整 SVG 标准要求）**
+
+- 支持 XML 1.0/UTF-8 声明、正确 SVG 命名空间（可带前缀）的根，以及六种内置图形和嵌套组。ShapeFactory 增加独立 describeSvg：按名称给出数值几何属性及 container/text/empty 内容能力；没有用 CLI 位置顺序/参数数量处理 XML，也没有在 Codec 新建图形类型分派表。XML 中的 text 内容必须为子文本，不接受虚构 text 属性。
+- 首批几何字段必须显式提供；画布 width/height 必填、有限严格为正，数值/px 合法，不接受百分比、em/cm 等单位。viewBox 可缺省，或必须精确表示 0 0 width height；严格检查四个有限值与分隔符，不忽略不同坐标映射。导出规范化数字、命名空间、尺寸及 viewBox；不保留无语义影响的 XML 排版、属性顺序和注释。
+- 支持几何属性及 fill/stroke/stroke-width；paint 首批限命名颜色/none/inherit 等字母值与 3/4/6/8 位十六进制，不支持 rgb()/hsl()、CSS 变量、currentColor、context paint 或 url() 引用。此限制同时用于编码：CLI 原本允许的任意样式字符串，不保证都能导出；遇到超出子集值明确失败，不能静默替换。
+- 根属性限 width/height/viewBox、命名空间和上述安全保留属性（含根公共样式）。根 id、preserveAspectRatio、version、其他未支持属性明确拒绝，避免模型没有对应语义却静默丢弃。接受预定义实体、数字实体、CDATA、中文、空文本和必要空白；保持原 xml:space，不擅自插入 preserve 改变原渲染规则。遵守 XML 本身的行尾/属性空白规范化，模型中的 CR/LF/TAB 编码为字符引用，解码后保持值。
+- 全部显式图形 id 先预扫描并验证重复，再按文档前序、各标签从 1 起跳过已有/已分配编号；未命名组也分配 id。SVG id 要求非空且无空白，这是 Codec 兼容性校验，不改变现有领域/CLI id 契约。工厂创建，document.insert 建树，继续由 TreeOwnership 维护归属，不开放底层接口。
+- 禁止 DTD/实体声明、任何非 XML 声明的处理指令、未知实体、脚本/事件属性、style/CSS、外部及内部资源引用、未知图形、复杂文本子元素、叶子子节点及非文本容器中的实质文字。支持的命名空间声明不得引入未支持命名空间。解析错误立即抛出，不恢复后继续；拒绝重复 XML 属性、未闭合/多根及非法 XML 字符。
+- 默认资源上限：1 MiB UTF-8 输入/输出、10,000 个解析节点、64 层（含 svg 根）；允许构造时提供有限正安全整数上限。解析时开标签、文本/CDATA、注释计数，根外格式空白忽略；深度在开标签事件检查，DTD 不展开实体，不获取资源。编码分块累计字节，检查节点/深度和字符；空文档及文本的临界资源限制往返已测试。输入字节限制先于解析，节点/深度先于领域建树。限制不代表任意输入的精确内存或时间上限，文档插入仍有重复遍历成本。
+
+**任务书样例兼容性逐项核对**
+
+| 样例位置 | 当前结果 | 持久验证 |
+| --- | --- | --- |
+| §0.1 第一个完整 XML（g + 两个 rect + line） | 已支持 | task-basic.svg，语义往返 |
+| §0.1 其后的 Markdown 内联预览 | 预期拒绝 | task-preview-basic.svg，根 style 明确拒绝 |
+| §0.1 transform 嵌套示例 XML | 预期拒绝 | task-transform.svg，transform 原因 |
+| §0.1 transform 示例的内联预览 | 预期拒绝 | task-preview-transform.svg，首先因根 style 拒绝 |
+| §6 other.svg（缺 id、嵌套 g、ellipse） | 已支持 | task-other.svg，警告与稳定 rect1 及往返 |
+| §6 主会话在首个 save 前的内存图形 | 已支持生成/往返 | 自动执行该段实际内存命令；不执行 save/read |
+| §6.1 版本 A 手工流程图 | 已支持生成/往返 | 自动执行该段实际内存命令，确认 8 个节点 |
+| §4.1 标签片段与 §5 显示样例 | 非独立 SVG 文档 | 六种模型/XML 测试覆盖属性；CLI 显示沿用 5A 验证 |
+| §4.4、§6.1 版本 B 的 box | 后续阶段，不在本轮支持范围 | 未执行插件命令，仍不声明支持 box |
+
+测试检查任务书中全部五个完整 svg 根样例与 fixtures 完全对应。背景 transform 示例不能导入仍是用户批准的兼容性差距，不是任务书规定“必须拒绝”。尚未做真实文件 read/save 或浏览器产物验收，留到后续集成；不能将字符串往返描述为已验证文件操作。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -262,13 +305,17 @@ MAIN --> ConsoleTerminal
 25. **第五轮规划与 5A 授权**：用户批准 5A–5D 四迭代，原则上接受同步 FileStore、同目录临时文件替换、必要工厂/保留属性调整和受控 SVG 子集；本轮只授权 CLI 解析、查询和展示，不实现 5B/5C/5D。
 26. **5A 实现与纠错**：AI 将工厂类型构造与参数描述集中为私有目录。首次编译后执行发现静态字段初始化中通过类名调用私有辅助方法的编译结果触发 Receiver 错误，改为静态 this 调用；随后原 338 项全部通过。新增词法、分发、展示、查询和描述测试，强调失败后完整状态及实际 Redo 内容，不只断言抛错；补充控制字符安全格式化和 show 几何/样式分行。
 
+27. **5A 验收与 5B 授权**：用户确认 1bbdd76 专项审查无 P1/P2/P3，批准纯字符串 Codec、安全保留属性和相关回归；强调 XML schema 不能套用 CLI 位置参数，保留属性不能进入回滚集合，5C/5D 不得提前实现。
+28. **5B 依赖与实现**：AI 比较 DOM 与事件式解析方案，选 saxes 以在解析中检查资源限制；如实记录归档状态与旧类型声明兼容问题，采用局部类型适配而非降低 tsconfig 严格度。独立保留值对象和公共复制钩子完成最小领域扩展，树维护与应用执行链路不变。
+29. **5B 测试纠错与加固**：第一批 Codec 测试中，非法 XML 字符测试尚残留上一断言的非法 paint，导致先报 paint 而非预期字符错误；修正测试前置状态后通过。额外临界测试发现编码节点计数与解析器的声明后空白/文本计数不一致，统一为根外格式空白不计、元素内文本计数，并固化往返临界回归。全部实际任务 SVG 样例、严格拒绝、元数据历史与失败回滚纳入测试。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 5A 新增 cli 的三个类和 application 查询值接口；仅修改 Service 与领域工厂，无 REPL/SVG/IO 模块实现 |
+| 目录与方案 | 5B 新增 svg/SvgCodec 与 domain/PreservedAttributes；领域仅扩展保留/复制和工厂 XML 描述，CLI/application/main 不变，无 IO/REPL 实现 |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
-| 依赖方向 | cli 仅依赖 application 与自身（无 domain 导入）；application 仅依赖自身/domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
+| 依赖方向 | cli 仅依赖 application/自身；application 仅依赖自身/domain；svg 仅依赖 domain、XML 解析器及 Node 模块加载器，不访问文件；domain 无反向依赖，Service 无具体 Command 分派；main 不接业务 |
 | Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，真实 read/save 边界仍待 IO 接入 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
@@ -387,6 +434,14 @@ git status --short
 - 失败矩阵在已有双栈状态逐次比较树、几何、属性、默认路径和历史状态，并实际 Redo 验证分支内容未丢失；查询与展示不改变历史，冻结投影/工厂描述不能被修改，旧投影不随后续编辑变化。
 - 已实际运行 npm run typecheck、npm run build、npm test、npm start 及 git diff --check，均通过。451 项测试通过、0 失败，原 338 项回归全部通过；启动测试使用本轮重新构建的产物。任务书 SHA-256 与初始化记录相同，提交前继续核对暂存范围与生成物。
 - 正式启动仍输出初始化信息，不是 REPL。没有 read/save、SVG 属性保留或真实文件 IO；任务书、依赖、历史机制、十种 Command、几何/结构实现均不修改。只创建授权的本地独立提交，不推送、不打标签，完成后停止。
+
+### 5B 验证记录
+
+- 新增 svg-codec、preserved-attributes、svg-task-workflows 三份测试和六份 SVG fixtures；相对 451 项基线新增 118 项，共 569 项全部通过。语义测试比较类型/id/几何/文本/显式与保留属性/绘制顺序/父级/查询/归属，XML 排版变化不视为语义失败；部分规范化输出幂等测试额外比较编码字符串。
+- 严格拒绝矩阵覆盖非法 XML/重复 XML 属性/命名空间/DTD/外部实体/PI/脚本/事件/引用/复杂文本/未知语义/数值/坐标映射。默认与自定义字节、节点、深度限制及 500 节点文档往返通过；默认超限输入在工厂构造前拒绝。
+- 保留属性测试覆盖六类型 clone、根 clone、输入/输出隔离、原子替换失败、嵌套组后部溢出回滚（保留身份/几何/属性/结构）、group/ungroup/addTo/front/back、删除重插、Service Undo/Redo 和同 id 的私有历史版本隔离。原 P1、领域、Command 原子性和 CLI 全部回归继续通过。
+- 任务书五个完整 SVG 样例和两个内存会话的状态已分别核对，结果见架构方案兼容表；真实文件 IO、read/save、浏览器渲染和 REPL 尚未执行，不宣称已完成。
+- 已实际运行 npm run typecheck、npm run build、npm test、npm start、git diff --check，全部通过；569 项测试通过、0 失败。任务书 SHA-256 与初始化记录相同。新增 saxes/xmlchars 是唯一依赖变化，不提交生成物；不修改任务书、TreeOwnership、应用状态层、Dispatcher、十种 Command 或 main，不推送、不打标签。
 
 ### 后续验收范围
 

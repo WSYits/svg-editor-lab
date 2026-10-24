@@ -43,7 +43,7 @@ export class EllipseShape extends Shape {
 
   clone(): EllipseShape {
     const copy = new EllipseShape(this.id, this.#geometry.cx, this.#geometry.cy, this.#geometry.rx, this.#geometry.ry);
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

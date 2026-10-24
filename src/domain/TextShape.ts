@@ -40,7 +40,7 @@ export class TextShape extends Shape {
 
   clone(): TextShape {
     const copy = new TextShape(this.id, this.#geometry.x, this.#geometry.y, this.#geometry.text);
-    this.copyStylesTo(copy);
+    this.copyCommonStateTo(copy);
     return copy;
   }
 

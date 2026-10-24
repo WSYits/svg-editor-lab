@@ -15,7 +15,12 @@ export interface CreationParameter {
 export interface CreationDescription {
   readonly parameters: readonly CreationParameter[];
 }
+export interface SvgShapeDescription {
+  readonly numericAttributes: readonly string[];
+  readonly content: 'container' | 'text' | 'empty';
+}
 interface ShapeDefinition {
+  readonly svg: SvgShapeDescription;
   readonly description: CreationDescription;
   readonly construct: (id: string, attributes: Readonly<Record<string, AttributeValue>>) => Shape;
 }
@@ -36,12 +41,14 @@ export class ShapeFactory {
         if (typeof a.text !== 'string') throw new Error('text must be a string');
         return new TextShape(id, this.#number(a, 'x'), this.#number(a, 'y'), a.text);
       })],
-    ['g', this.#definition([], undefined, id => new GroupShape(id))],
+    ['g', this.#definition([], undefined, id => new GroupShape(id), true)],
   ]);
 
   getTypes(): readonly string[] { return Object.freeze([...ShapeFactory.#definitions.keys()]); }
 
   describe(type: string): CreationDescription { return this.#definitionFor(type).description; }
+
+  describeSvg(type: string): SvgShapeDescription { return this.#definitionFor(type).svg; }
 
   attributeKind(type: string, attribute: string): AttributeKind {
     const parameters = this.describe(type).parameters;
@@ -65,10 +72,12 @@ export class ShapeFactory {
   }
 
   static #definition(names: readonly string[], optionalStyle: string | undefined,
-    construct: ShapeDefinition['construct']): ShapeDefinition {
+    construct: ShapeDefinition['construct'], container = false): ShapeDefinition {
     const parameters: CreationParameter[] = names.map(name => Object.freeze({ name, kind: name === 'text' ? 'string' : 'number', optional: false }));
     if (optionalStyle) parameters.push(Object.freeze({ name: optionalStyle, kind: 'string', optional: true }));
-    return Object.freeze({ description: Object.freeze({ parameters: Object.freeze(parameters) }), construct });
+    return Object.freeze({ description: Object.freeze({ parameters: Object.freeze(parameters) }), construct,
+      svg: Object.freeze({ numericAttributes: Object.freeze(names.filter(name => name !== 'text')),
+        content: container ? 'container' : names.includes('text') ? 'text' : 'empty' }) });
   }
 
   static #number(attributes: Readonly<Record<string, AttributeValue>>, key: string): number {
