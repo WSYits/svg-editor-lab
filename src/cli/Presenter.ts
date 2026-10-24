@@ -1,8 +1,26 @@
-import type { CommandResult } from '../application/CommandResult.js';
+import type { DocumentIoResult } from '../application/DocumentIoResult.js';
+import type { CommandOutput } from './CommandOutput.js';
 import type { ShapeView, TreeView } from '../application/QueryView.js';
 
 export class Presenter {
-  summary(result: CommandResult): string { return this.#singleLine(result.summary); }
+  summary(result: { readonly summary: string }): string { return this.#singleLine(result.summary); }
+
+  output(output: CommandOutput): string {
+    // These are presentation shapes, not command names or graphic types.
+    switch (output.kind) {
+      case 'empty': return '';
+      case 'summary': return this.summary(output.value);
+      case 'io': return this.documentIo(output.value);
+      case 'canvas': return this.canvas(output.value);
+      case 'tree': return this.tree(output.value);
+      case 'shape': return this.show(output.value);
+      case 'help': return this.help(output.value);
+    }
+  }
+
+  documentIo(result: DocumentIoResult): string {
+    return [...result.warnings.map(warning => this.#singleLine(warning)), this.summary(result)].join('\n');
+  }
 
   error(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);

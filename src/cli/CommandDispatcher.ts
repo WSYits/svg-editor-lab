@@ -12,13 +12,14 @@ import { FrontCommand } from '../application/commands/FrontCommand.js';
 import { BackCommand } from '../application/commands/BackCommand.js';
 import { Tokenizer, type Token } from './Tokenizer.js';
 import { Presenter } from './Presenter.js';
+import type { CommandOutput } from './CommandOutput.js';
 
 interface CommandDefinition {
   readonly syntax: string;
   readonly requiresDocument: boolean;
   readonly minimum: number;
   readonly maximum: number;
-  readonly run: (args: readonly Token[]) => string;
+  readonly run: (args: readonly Token[]) => CommandOutput;
 }
 
 export class CommandDispatcher {
@@ -32,12 +33,14 @@ export class CommandDispatcher {
     // Single command-name registration point. Help uses these same entries.
     this.#register('init [w] [h]', false, 0, 2, args => {
       this.#dimensions(args);
-      return this.#presenter.summary(args.length === 0 ? service.init() : service.init(this.#number(args[0]!), this.#number(args[1]!)));
+      return this.#summary(args.length === 0 ? service.init() : service.init(this.#number(args[0]!), this.#number(args[1]!)));
     });
+    this.#register('read <file.svg>', false, 1, 1, args => Object.freeze({ kind: 'io', value: service.read(args[0]!.value) }));
+    this.#register('save [file.svg]', true, 0, 1, args => Object.freeze({ kind: 'io', value: service.save(args[0]?.value) }));
     this.#register('canvas [w] [h]', true, 0, 2, args => {
       this.#dimensions(args);
-      return args.length === 0 ? this.#presenter.canvas(service.getCanvasSize())
-        : this.#presenter.summary(service.resizeCanvas(this.#number(args[0]!), this.#number(args[1]!)));
+      return args.length === 0 ? Object.freeze({ kind: 'canvas', value: service.getCanvasSize() })
+        : this.#summary(service.resizeCanvas(this.#number(args[0]!), this.#number(args[1]!)));
     });
     this.#register('create <type> <id> [params…] [in <containerId>]', true, 2, Infinity, args => this.#create(args));
     this.#register('delete <id>', true, 1, 1, args => this.#edit(new DeleteCommand(args[0]!.value)));
@@ -53,16 +56,19 @@ export class CommandDispatcher {
     this.#register('addto <gid> <id>', true, 2, 2, args => this.#edit(new AddToCommand(args[0]!.value, args[1]!.value)));
     this.#register('front <id>', true, 1, 1, args => this.#edit(new FrontCommand(args[0]!.value)));
     this.#register('back <id>', true, 1, 1, args => this.#edit(new BackCommand(args[0]!.value)));
-    this.#register('tree [id]', true, 0, 1, args => this.#presenter.tree(service.getTreeView(args[0]?.value)));
-    this.#register('show <id>', true, 1, 1, args => this.#presenter.show(service.getShapeView(args[0]!.value)));
+    this.#register('tree [id]', true, 0, 1, args => Object.freeze({ kind: 'tree', value: service.getTreeView(args[0]?.value) }));
+    this.#register('show <id>', true, 1, 1, args => Object.freeze({ kind: 'shape', value: service.getShapeView(args[0]!.value) }));
     this.#register('help', false, 0, 0, () => this.#help());
-    this.#register('undo', true, 0, 0, () => this.#presenter.summary(service.undo()));
-    this.#register('redo', true, 0, 0, () => this.#presenter.summary(service.redo()));
+    this.#register('undo', true, 0, 0, () => this.#summary(service.undo()));
+    this.#register('redo', true, 0, 0, () => this.#summary(service.redo()));
   }
 
-  dispatch(line: string): string {
+  /** Convenience for existing synchronous callers; REPL separates these phases. */
+  dispatch(line: string): string { return this.#presenter.output(this.execute(line)); }
+
+  execute(line: string): CommandOutput {
     const tokens = this.#tokenizer.tokenize(line);
-    if (tokens.length === 0) return '';
+    if (tokens.length === 0) return Object.freeze({ kind: 'empty' });
     const definition = this.#commands.get(tokens[0]!.value);
     if (!definition) throw new Error(`unknown command: ${tokens[0]!.value}`);
     if (definition.requiresDocument && !this.#service.hasDocument) {
@@ -83,18 +89,20 @@ export class CommandDispatcher {
     this.#commands.set(syntax.split(' ')[0]!, Object.freeze({ syntax, requiresDocument, minimum, maximum, run }));
   }
 
-  #help(): string {
+  #help(): CommandOutput {
     const creation = this.#service.getCreationTypes().map(type => {
       const parameters = this.#service.getCreationDescription(type).parameters
         .map(parameter => parameter.optional ? `[${parameter.name}]` : `<${parameter.name}>`).join(' ');
       return `create ${type} <id>${parameters ? ` ${parameters}` : ''} [in <containerId>]`;
     });
-    return this.#presenter.help([...this.getHelpSyntaxes(), ...creation]);
+    return Object.freeze({ kind: 'help', value: Object.freeze([...this.getHelpSyntaxes(), ...creation]) });
   }
 
-  #edit(command: Command): string { return this.#presenter.summary(this.#service.execute(command)); }
+  #summary(value: { readonly summary: string }): CommandOutput { return Object.freeze({ kind: 'summary', value }); }
 
-  #create(args: readonly Token[]): string {
+  #edit(command: Command): CommandOutput { return this.#summary(this.#service.execute(command)); }
+
+  #create(args: readonly Token[]): CommandOutput {
     const description = this.#service.getCreationDescription(args[0]!.value);
     let values = args.slice(2);
     let parentId: string | undefined;

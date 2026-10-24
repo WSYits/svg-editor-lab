@@ -2,8 +2,8 @@
 
 ## 当前范围与依据
 
-- 当前只获准 5C：同步 FileStore、真实 read/save 和应用历史边界及专项测试；完成一次本地提交后停止，不推送、不打标签，不进入 5D。
-- 本轮不修改 Dispatcher、正式启动入口、XML 安全策略、领域算法、TreeOwnership 或具体 Command；没有 REPL/真实终端集成。
+- 当前只获准 5D：Terminal/ConsoleTerminal、真实 REPL、19 命令接线、进程测试及文档覆盖矩阵；完成一次本地提交后停止，不推送、不打标签，不进行 final 交付。
+- 本轮允许最小 CLI/启动接线修改，不修改已验收 XML 安全策略、领域模型、TreeOwnership、历史、具体 Command 或 IO 语义，不实现插件。
 - `requirements/phase1.md` 是任务书，不得修改。用户确认决策与设计假设记录在 `doc/README.md`，不得冒充任务书硬性要求。发现冲突应说明并澄清。
 - 不一次性实现全部功能，不提前实现 box、插件体系、GUI 或其他后续阶段功能。
 - 不自动创建子代理或扩大任务范围。保留用户已有文件和修改。
@@ -27,6 +27,7 @@
 - 文档边界辅助方法保持私有。read 在 IO/严格解码/Codec/下一状态/结果全部成功后发布；save 在写盘前准备完整冻结状态和结果，FileStore 替换成功后只赋值发布，不再分配/克隆/清理/输出，不提供假保存成功入口。
 - LocalFileStore 同步、有界读取实际字节、严格 UTF-8；拒绝直接符号链接/非普通文件。保存独占同目录临时文件、完整写/fsync/close 后 rename，失败尽力清理。新 inode 使用 0600，不保留旧 ACL/owner/硬链接/其他元数据；不保证父目录符号链接竞态隔离、断电持久性或跨磁盘/内存事务。
 - 具体 Command 的原始值参数按值保存；Create 属性字典与 Group id 列表在构造时复制并冻结（值均为原始值）。Create 每次执行经 ShapeFactory 创建新对象；所有 Command 均不缓存跨执行的 Shape。结果只含字符串，不暴露文档、Shape 或回调。
+- REPL 以 Dispatcher.execute 完成同步业务，再由 Presenter.output 格式化并异步输出；后两者失败必须终止终端会话，不能误报业务失败、重试命令或回滚历史。普通命令错误格式化后继续；致命终端故障最多尝试一次 stderr 诊断并退出 1。TTY（输入和输出均为 TTY）显示 svg> 提示符，管道不显示提示符，均显示欢迎行。
 - CLI 的命令名只在 CommandDispatcher 注册一次；help 复用注册目录，创建参数帮助从工厂描述生成。Tokenizer 只分词；Presenter 只格式化，统一添加 error: 前缀；Dispatcher 以词法错误、未知命令、已知命令无文档门禁、语法/业务校验的顺序处理。
 - tree/show 通过 Service 的递归冻结值投影展示，不向 CLI 交付 Shape/SvgDocument。查询不改变历史；格式化只读这些值，不按图形类型分派业务。
 - SVG 按命名空间与 XML 良构性严格验证；使用工厂独立的 XML 属性/内容描述，不能按 CLI 参数位置解释 XML。图形创建经 ShapeFactory，结构经文档接口，不绕过 TreeOwnership。

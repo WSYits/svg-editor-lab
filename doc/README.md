@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留及 P2 字符校验修复，并接入 5C 同步 FileStore、真实 read/save 与历史边界；REPL、CLI read/save 注册、真实终端集成、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留及 P2 字符校验修复，并接入 5C 同步 FileStore、真实 read/save 与历史边界；现已完成 5D 的 Terminal/ConsoleTerminal、真实 REPL、19 个命令接线与进程级集成。`npm run cli` 先构建再启动交互程序，`npm start` 使用已构建入口；box 和插件不属于 Phase 1。最终综合验收、远程推送与 final 标签仍等待用户后续授权。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter、svg 的 SvgCodec、io 的 FileStore/LocalFileStore；domain 增加安全保留属性值对象，不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter、svg 的 SvgCodec、io 的 FileStore/LocalFileStore 与 Terminal/ConsoleTerminal；CLI 的 Repl 和正式启动接线已实现。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -17,7 +17,7 @@
 | cli | 输入、引号与注释、命令分发、结果格式化；不直接操作领域对象 |
 | svg | SvgCodec 负责 XML 与领域文档互转、兼容性检查和补 id，不访问文件 |
 | io | FileStore/Terminal 接口及本地实现 |
-| main.ts | 未来用于对象接线和启动；当前仅验证启动链路 |
+| main.ts | 装配 LocalFileStore、SvgCodec、EditorService、Presenter、Dispatcher、ConsoleTerminal 与 Repl，并设置退出码 |
 
 ### 依赖方向与图
 
@@ -31,7 +31,7 @@
 ```plantuml
 @startuml
 skinparam componentStyle rectangle
-component "CLI\nTokenizer / CommandDispatcher\nPresenter（Repl 待实现）" as CLI
+component "CLI\nTokenizer / CommandDispatcher\nPresenter / Repl" as CLI
 component "Application\nCommands / EditorService\nEditorSession / HistoryManager" as APP
 component "Domain\nSvgDocument / Shape hierarchy\nShapeFactory" as DOMAIN
 component "SVG\nSvgCodec" as SVG
@@ -62,7 +62,7 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。文档操作已有独立 Service 入口，5C 接入真实 read/save；CLI 内存命令分发与展示已实现，read/save 的 CLI 注册和 REPL 待 5D。
+- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。文档操作已有独立 Service 入口，5C 接入真实 read/save；CLI 的 19 个命令与 REPL 已接线；业务执行与展示/终端输出严格分阶段。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
 - 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。5B 的 PreservedAttributes 是有白名单校验职责的不可变值对象，不是事务层或插件框架。
@@ -279,6 +279,70 @@ MAIN --> ConsoleTerminal
 
 禁用时 Undo/Redo 仍为 undo not allowed after io command；成功编辑解禁后 Undo 到空栈为 nothing to undo，而不是边界错误。真实文件往返不等于浏览器渲染或终端验收，后两者仍待 5D。
 
+### 5D 实际 REPL、展示阶段和进程接线
+
+**运行方法**
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run cli
+```
+
+`npm run cli` 执行 build 后启动 dist/src/main.js；`npm run build` 后也可以 `npm start` 或 `node dist/src/main.js`。将命令逐行写入脚本后，可执行 `node dist/src/main.js < commands.txt`。不要手工编辑 dist；生成物和临时 SVG 不纳入 Git。启动欢迎行为 `svg-editor 0.1 — type 'help' for commands`。
+
+**职责与交互约定**
+
+- io/Terminal 提供 lines、write、writeError、prompt、close；只有终端输送是异步的，EditorService、Command、FileStore 保持同步。ConsoleTerminal 使用 Node readline 的异步行迭代、回调确认写入的 Writable，未引入依赖或异步业务框架。
+- Repl 只协调逐行执行、展示和传输，不识别任何业务命令名。main 创建真实 FileStore/Codec/Service，再注入 Dispatcher 和 ConsoleTerminal。help 复用 Dispatcher 的唯一注册源：19 个实际命令，另外六条 create 类型参数说明来自唯一 ShapeFactory，并非额外注册六个命令。
+- 交互策略是设计假设：stdin 与 stdout 都是 TTY 时，用 readline 显示 svg> 提示符并提供输入回显/编辑；有任一端重定向时不显示提示符或 ANSI 光标控制，不伪造输入回显。两种模式均输出欢迎行。正常反馈、警告及普通命令错误按顺序输出到 stdout；致命终端/展示故障诊断到 stderr。
+- 空行和整行 # 注释无业务结果；词法、未知命令、无文档、语法和领域错误保持既有优先级。普通命令错误显示一次 error: 后继续下一行；正常 EOF（含最后一行无换行、空输入、预先结束的流）退出 0，即便此前有普通命令错误。TTY 实际验证 Ctrl-D 退出，不增加 exit/quit 等任务书外命令。
+- 欢迎行输出后，输入迭代器在首次提示符之前订阅 readline，随后才等待提示符/下一行，避免快速管道输入丢行；关闭事件阻止 EOF 后继续提示或恢复输入；输入/输出流无 error 事件的异常 close 也被识别并终止，不等待永远不会到来的下一行。readline 可能在输入监听器触发关闭之后继续转发 error，因此保留独立 interface error 监听器至清理回合结束，防止未处理事件。关闭时恢复 readline 管理的终端状态、暂停输入、释放监听器，不主动结束进程拥有的 stdout/stderr。
+- 终端写入等待完成，背压期间不执行下一命令；输出 error 关闭读取并终止会话。故障时最多尝试一次固定 stderr 诊断并退出 1，诊断设备也失效则不重试；清理异常也退出 1。清理等待一轮事件循环，防止 Writable 回调先于 error 事件导致未处理异常。Terminal/Repl 输入均为单次使用。
+
+**执行与展示失败边界**
+
+- 原 Dispatcher.dispatch(line): string 保留为已有同步调用者的兼容便利接口，但真实 REPL 使用 execute(line)，只执行查找/语法转换/Service 并返回冻结的 CommandOutput 展示值；随后在业务 catch 之外调用 Presenter.output，再调用 Terminal.write。服务层、历史和具体 Command 未修改。
+- CommandOutput 是显示数据的联合类型（summary、io、tree、shape、canvas、help、empty），只包含隔离值和稳定结果，不包含业务回调或领域对象。Presenter 对这些显示数据选择格式，既不按命令名执行行为，也不按图形类型构造/编辑领域对象；唯一命令注册和图形类型创建仍分别位于 Dispatcher/ShapeFactory。
+- 普通命令失败才进入 Presenter.error。格式化或终端输出失败属于终端故障，不重新执行命令、不回滚正式状态，也不追加“保存失败”业务错误。成功 read 先显示完整结果中的缺 id 警告再显示摘要；save 显示成功摘要。DocumentIoResult 不必伪装成 CommandResult，Presenter.summary 接收最小只读 summary 值契约。
+- 摘要、警告、异常路径中的换行、ESC、控制码和 Unicode 行分隔符统一可见转义，避免终端注入；tree/show 原有文字引号与反斜杠转义保持。逻辑多行仅由 Presenter 显式组合，错误前缀只在 Presenter.error 添加。
+- 真实 EPIPE 测试先完成图形创建，再关闭 stdout 管道，发送 save 与下一条 move；验证保存文件已生成、x 未被下一条 move 改动、退出码 1、stderr 仅终端故障诊断。另以注入格式化/输出异常检查 Service 的默认路径、历史禁用和文件内容均对应已成功保存状态。
+
+**Phase 1 命令与交付覆盖矩阵**
+
+以下“已验证”指自动化行为验证，不代表任务书 transcript 的每个摘要逐字一致。Undo/Redo 沿用已验收的通用摘要，tree/show 保留全部可编辑几何和显式样式，外部 SVG 安全保留属性仍是独立只读元数据，并参与 IO/快照。
+
+| 任务书依据/命令 | 已实现行为与关键边界 | 直接验证依据 |
+| --- | --- | --- |
+| §3 init | 默认 800×600/两尺寸、清路径、替换文档、清栈禁用、失败不变 | document-boundaries、application-workflow、cli-process |
+| §3 read | 无文档可读、严格 UTF-8、有界实际字节、自动 id/警告、成功路径及历史边界、失败保留 Redo | file-store、document-io、document-io-failures、cli-io、cli-process |
+| §3 save | 显式/默认/另存路径，无默认路径拒绝，同目录临时替换；成功边界与失败原子性 | 同上；repl、cli-process 的输出故障验证 |
+| §3 canvas | 零参数查询不改历史；两参数修改、同尺寸也建边界，保留路径 | document-boundaries、command-dispatcher、cli-process |
+| §4.1 create | rect/circle/ellipse/line/text/g；必填 id、位置参数、可选样式缺省、in 尾缀、空文本；box 拒绝 | creation-description、command-dispatcher、structure-commands、cli-process |
+| §3 delete | 叶子/子树删除，一个历史单元，完整快照恢复 | structure-commands、tree-sequence、cli-process |
+| §3 move | 增量平移，组递归；非法值/溢出失败不变 | leaf-shapes、group-shape、geometry-commands、cli-process |
+| §3 scale | 正有限倍率，全部几何相乘，组递归与后部溢出回滚 | 同上；command-dispatcher 非法数值矩阵 |
+| §4.1 set | 几何数值、text 字符串、公共样式白名单；其他属性拒绝 | shape-contract、geometry-commands、command-dispatcher、cli-process |
+| §3 group | 原子收编/跨父级，操作前顺序与已确认 LCA/锚点；拒绝祖先后代同选 | tree-grouping、structure-commands、cli-process |
+| §3 ungroup | 仅指定嵌套组，子节点占原位置，顶层拒绝；不恢复跨父分组前关系 | tree-ungrouping、structure-commands、cli-process |
+| §3 addto | 移入目标组末尾，同父重排，自包含/循环拒绝 | tree-reparenting、structure-commands、cli-process |
+| §3 front | 同级绘制序列末尾，其他顺序不变 | tree-order、structure-commands、cli-process |
+| §3 back | 同级绘制序列开头，其他顺序不变 | 同上 |
+| §5 tree | 全树/子树、绘制顺序、类型/id/几何/文字与显式样式，不进入历史 | presenter、application-queries、cli-process |
+| §5 show | 类型/id/父级/几何/文字/显式样式，不泄漏可变对象 | 同上 |
+| §3 help | 同一目录列出 19 命令与工厂创建参数，无占位处理器 | command-dispatcher、repl、cli-process |
+| §4.3 undo | 每个成功编辑一个单元，包括合法无变化；文档边界禁用与空栈区分 | history-manager、editor-service、structure-commands、document-io、cli-process |
+| §4.3 redo | 完整快照，不重跑业务；Undo 后失败编辑保留分支、成功编辑清分支 | 同上 |
+| §2 CLI/错误 | svg>；引号/转义/中文/颜色/空行/注释；严格参数，普通错误后继续，EOF 退出 | tokenizer、command-dispatcher、repl、console-terminal、真实 PTY/管道进程 |
+| §0 SVG 文件 | 可直接解释的标准 SVG 元素、XML 转义、字符串/真实文件语义往返 | svg-codec、svg-task-workflows、document-io、cli-process；浏览器视觉预览尚未执行 |
+| §2.1 范式/模式 | TS 严格类型、一类一文件、封装/多态、Command/Composite、唯一业务名字分派 | 全部源码、契约/归属/原子性回归、类型检查、本文依赖自查 |
+| §1.1 Git | 按批准迭代独立提交，历史保留 | 本地 Git；本轮不推送，final 标签与最终远程交付待授权 |
+| §1.2 文档/协作 | 本文四部分、PlantUML、变化点、真实 AI 过程与质量保证 | 本文、AGENTS；最终综合验收仍待用户审查 |
+| §4.4/§6.1 B | box/插件属于后续阶段，当前明确 unknown shape type | shape-factory、cli-process；没有提前实现 |
+
+SVG 支持范围沿用 5B：明确拒绝 transform、复杂 CSS/资源引用/脚本、未知元素/属性、不同坐标映射和不支持单位，不因 5D 接线而扩大范围；任务书示例逐项兼容表仍适用。文件 IO 沿用 5C：同步、1 MiB 默认字节上限、同目录临时替换、0600、元数据/符号链接与非跨系统事务限制均不变。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -361,14 +425,19 @@ MAIN --> ConsoleTerminal
 33. **发布点的必要调整**：审查发现原 publish 内仍分配并 freeze 会话/历史组合对象；保存后再执行这一步不符合“所有准备先于写盘”。因此只把组合对象构造前移，保留同一个私有发布点，不改 Session/History 或增加事务层。save 先准备编码、会话、历史和结果，再触碰磁盘。
 34. **故障路径与验证口径**：增加真实临时目录测试和窄系统调用注入，覆盖短读短写、实际字节上限、UTF-8 非法字节及写/刷新/关闭/rename/清理失败。初次专项运行暴露两处测试设置问题：未传入已注入的系统调用对象，以及非法 XML 同时缺少命名空间导致更早兼容错误；修正测试以实际命中目标路径，未修改已验收的 XML 策略。记录清理/元数据/平台边界，不声称跨磁盘内存原子事务。
 
+35. **5C 通过与 5D 授权**：用户确认 c86bd5a 专项无 P1/P2/P3，批准 REPL/终端、read/save 注册、真实进程测试和覆盖矩阵，不允许推送、final 或 Phase 2。先核对现有同步状态和 IO 成功返回契约，避免增加异步业务协调层。
+36. **发现真实展示接口阻塞并最小修订**：原 Dispatcher 在业务调用内直接使用 Presenter，REPL 若整体捕获就会把保存后的格式化异常误报成命令失败。新增只读 CommandOutput 与 execute 阶段，保留 dispatch 兼容接口；Presenter.summary 改为最小只读 summary 契约以接受 DocumentIoResult，Service/领域/IO/历史完全不动。
+37. **终端异常的实际测试修正**：输入错误测试复现 readline 在原输入监听器关闭 reader 后继续转发 error，导致未处理接口事件；补充接口 error 监听并在清理回合后释放。测试从失败变为通过，额外覆盖预先 EOF、快速管道、异步 EPIPE、真实 PTY Ctrl-D 和输出失败后的文件/状态保持。
+38. **真实集成与测试契约演进**：原 683 项中三项涉及旧启动消息/17 命令及 read 无文档门禁的断言，按本轮已批准新契约更新，其他既有测试不改；新增 31 项。修正进程测试中将 help 的 <file.svg> 误判为提示符、以及把 canvas 修改摘要当查询格式的测试断言，没有修改业务语义。完整真实流程检查所有 19 命令、六种类型、十节点树、错误继续、Redo 分支与真实 SVG 字节/语义恢复。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 5C 新增 io/FileStore/LocalFileStore 和 application/DocumentIoResult；Service 接入真实 read/save；CLI/main 不变，无 REPL |
+| 目录与方案 | 5D 新增 cli/Repl/CommandOutput 和 io/Terminal/ConsoleTerminal，修改 Dispatcher/Presenter/main 接线；已与规划模块一致 |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
-| 依赖方向 | cli 仅依赖 application/自身；application 依赖自身/domain/svg 和 FileStore 接口；io 只依赖 Node 原生模块；svg 仅依赖 domain、XML 解析器及 Node 模块加载器，不访问文件；domain 无反向依赖，Service 无具体 Command 分派；main 不接业务 |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，5C 真实 read/save 边界已接入，CLI 注册和 REPL 尚未完成 |
+| 依赖方向 | cli 依赖 application/自身和 Terminal 接口；application 依赖自身/domain/svg 和 FileStore 接口；io 只依赖 Node 原生模块；svg 仅依赖 domain、XML 解析器及 Node 模块加载器，不访问文件；domain 无反向依赖，Service 无具体 Command 分派；main 只装配真实依赖，不执行具体命令业务 |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，5C 真实 read/save 边界已接入；5D 已完成 19 命令/REPL 接线，业务和展示失败分开 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -512,6 +581,15 @@ git status --short
 - 已实际运行 npm run typecheck、npm run build、npm test、npm start、git diff --check，全部通过；683 项测试通过、0 失败，原 585 项继续通过。npm test 包含重新构建，初始化子进程与 npm start 使用本轮产物，仍只输出初始化消息，不能称为真实终端验收。
 - 无新增依赖，无领域、TreeOwnership、Session、HistoryManager、十种 Command、Codec、Dispatcher、正式入口或任务书修改；任务书 SHA-256 与初始化记录相同。提交前核对暂存范围与生成物，仅一次独立本地提交，不推送、不打标签、不进入 5D。
 - 实际验证平台仍为 Node v26.8.1/npm 11.19.0 所在 macOS 环境；权限错误以注入证明，未宣称其他平台或断电/进程终止行为已验证。5D 仍须接线具体依赖、注册 read/save、显示成功警告、区分输出失败，并完成 REPL/真实终端和浏览器验收。
+
+### 5D 验证记录
+
+- 新增 repl（11 项）、console-terminal（9 项）、cli-io（7 项）和 cli-process（6 项）共 33 项；现有 683 项保留数量，三项启动/目录/无文档门禁测试更新到本轮契约。全部 716 项通过，0 失败、0 跳过，包括原领域、P1 归属、XML 字符 P2、历史、IO 和 CLI 回归。
+- 实际执行 npm run typecheck、npm run build、npm test（内部重新构建）、npm run cli。进程测试从本轮编译产物启动，包含 npm run cli 自动构建、200 次连续编辑无丢失/无末尾换行 EOF、真实文件保存/覆盖/读回、非法 UTF-8/非法 SVG 失败后继续。
+- 真实 PTY 测试通过 Python 标准库 pty.fork 运行 Node 程序，确认提示符、回显、错误后继续、help 和 Ctrl-D 退出 0；没有安装 Python 或新依赖。此项在 Windows/缺少 python3 时明确跳过，不能据此宣称其他平台验证通过。本机实际未跳过。另外使用工具的真实 TTY 手工启动 npm run cli，执行 init、中文 text、show、未知命令、canvas，Ctrl-D 退出 0。
+- EPIPE 的真实子进程测试在图形创建后断开 stdout，再发送 save 和下一条 move，验证保存仍成功、后续 move 未执行、退出码 1 且不报告 cannot write file。注入格式化和输出故障同时检查默认路径、禁用历史与磁盘一致；两种输出设备皆失败时仅尝试一次诊断。
+- 最终 Git 差异/暂存范围核查应排除 dist、node_modules、临时 SVG 和无关文件；任务书 SHA-256 保持初始化值。依赖/锁文件、领域、TreeOwnership、SvgCodec、安全策略、Service/Session/History、FileStore 和十种 Command 未修改。本轮仅一次授权本地提交，不推送、不打标签。
+- 当前功能已完成 Phase 1 的受控 SVG 子集 CLI 接线，但尚未执行浏览器视觉预览，也未进行用户最终综合验收；transform/CSS/坐标映射兼容差距、同步 IO/0600/元数据/断电边界仍见前文。远程同步和 final 交付须等后续授权。
 
 ### 后续验收范围
 

@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "npm run build && node --test dist/test/*.test.js",
-    "start": "node dist/src/main.js"
+    "start": "node dist/src/main.js",
+    "cli": "npm run build && node dist/src/main.js"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

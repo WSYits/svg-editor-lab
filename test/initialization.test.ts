@@ -15,5 +15,5 @@ test('compiled entry starts and exits successfully without requiring input', () 
   assert.equal(result.signal, null);
   assert.equal(result.status, 0);
   assert.equal(result.stderr, '');
-  assert.equal(result.stdout.trim(), 'svg-editor: project initialized');
+  assert.equal(result.stdout.trim(), "svg-editor 0.1 — type 'help' for commands");
 });

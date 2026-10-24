@@ -110,7 +110,7 @@ test('error priority is lexical, unknown name, then known-command no-document be
   assert.throws(() => d.dispatch('unknown bad'), /unknown command: unknown/);
   for (const syntax of d.getHelpSyntaxes()) {
     const name = syntax.split(' ')[0]!;
-    if (name !== 'init' && name !== 'help') assert.throws(() => d.dispatch(`${name} invalid extra`), { message: "no document. use 'init' or 'read' first" });
+    if (name !== 'init' && name !== 'help' && name !== 'read') assert.throws(() => d.dispatch(`${name} invalid extra`), { message: "no document. use 'init' or 'read' first" });
   }
   assert.throws(() => d.dispatch('init 10'), /zero or two/); assert.deepEqual(capture(s), before);
   assert.match(d.dispatch('help'), /create/); d.dispatch('init'); assert.equal(s.hasDocument, true);
@@ -121,13 +121,13 @@ test('blank/comment/help/query do not change disabled history, and malformed inp
   assert.throws(() => d.dispatch('set "'), /unterminated/); assert.deepEqual(capture(s), before);
   d.dispatch('create g g'); assert.equal(s.getHistoryStatus().disabled, false);
 });
-test('one command catalogue drives help; read/save are absent and genuinely unknown', () => {
+test('one command catalogue drives help including the real read/save registrations', () => {
   const { s, d } = fixture(); const before = capture(s); const syntaxes = d.getHelpSyntaxes();
-  assert.equal(syntaxes.length, 17); assert.equal(new Set(syntaxes.map(s => s.split(' ')[0])).size, 17);
+  assert.equal(syntaxes.length, 19); assert.equal(new Set(syntaxes.map(s => s.split(' ')[0])).size, 19);
   assert(Object.isFrozen(syntaxes));
   const help = d.dispatch('help'); for (const syntax of syntaxes) assert(help.split('\n').includes(syntax));
   for (const type of s.getCreationTypes()) assert(help.includes(`create ${type} <id>`));
-  for (const name of ['read', 'save', 'HELP', 'constructor', '__proto__']) assert.throws(() => d.dispatch(name), /unknown command/);
+  for (const name of ['HELP', 'constructor', '__proto__']) assert.throws(() => d.dispatch(name), /unknown command/);
   assert.deepEqual(capture(s), before);
 });
 test('domain errors remain raw until Presenter adds one prefix', () => {
