@@ -1,6 +1,6 @@
 import type { SvgDocument } from '../domain/SvgDocument.js';
 
-/** An isolated session value. Replacing a session is the future service's job. */
+/** An isolated session value. Replacing a session is the service's job. */
 export class EditorSession {
   readonly #document: SvgDocument | undefined;
   readonly #defaultSavePath: string | undefined;

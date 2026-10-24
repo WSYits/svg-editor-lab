@@ -29,6 +29,9 @@ export class HistoryManager {
     return HistoryManager.#fromSnapshots([], [], true);
   }
 
+  assertUndoAllowed(): void { this.#target(true); }
+  assertRedoAllowed(): void { this.#target(false); }
+
   prepareUndo(current: SvgDocument): HistoryTransition {
     return this.#prepare(current, true);
   }
@@ -37,11 +40,16 @@ export class HistoryManager {
     return this.#prepare(current, false);
   }
 
-  #prepare(current: SvgDocument, undo: boolean): HistoryTransition {
+  #target(undo: boolean): SvgDocument {
     if (this.#disabled) throw new Error('undo not allowed after io command');
     const source = undo ? this.#past : this.#future;
     const target = source.at(-1);
     if (target === undefined) throw new Error(undo ? 'nothing to undo' : 'nothing to redo');
+    return target;
+  }
+
+  #prepare(current: SvgDocument, undo: boolean): HistoryTransition {
+    const target = this.#target(undo);
     // Both clones and all array allocation must succeed before a result exists.
     // In particular, never pop a live stack before cloning the restore target.
     const document = target.clone();

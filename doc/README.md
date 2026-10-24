@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 的 EditorSession/HistoryManager 状态与快照历史基础；命令级 Undo/Redo、EditorService、Command、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础及 4B 的 EditorService、Move/Scale/SetAttribute Command 和这三种编辑的 Undo/Redo；4C 的创建/删除/树编辑 Command、4D 的 init/canvas、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的 EditorSession/HistoryManager；不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和三个几何/属性 Command；不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -62,7 +62,7 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **计划落地，尚未实现**：具体命令封装业务行为，不只是参数容器；EditorService 不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。
+- **已落地范围**：Move/Scale/SetAttribute Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。其他编辑 Command、CLI 分发与文档操作仍待后续迭代。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
 - 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 或插件框架；当前规模不需要这些层次。
@@ -141,6 +141,19 @@ MAIN --> ConsoleTerminal
 - SvgDocument.clone 通过现有 GroupShape/叶子 clone 和文档插入重新建立独立 TreeOwnership 归属；相同 id 在不同快照文档中合法。应用层跨快照不保证 JavaScript 对象身份延续，调用方应按 id 查询；不改变领域单次结构操作保留身份的契约。
 - **未来统一提交**：EditorService 私有持有会话与历史的组合，准备 Command 结果、下一会话和历史后一次发布；本轮没有该协调器，也没有验证命令执行与会话/历史发布的原子性。向 EditorSession 交付恢复文档仍经过构造复制，防止公开的 HistoryTransition.document 引用污染正式会话，不通过公开接管接口减少这次必要复制。
 
+### 4B 实际执行链路与原子提交
+
+- 新增 EditorService、CommandResult 及 commands/Command 抽象类与 MoveCommand、ScaleCommand、SetAttributeCommand。每个业务类单独同名文件。Service 仅依赖 Command 契约、Session/History/Result 和领域文档类型；具体 Command 只依赖契约、Result 与领域类型；domain 无反向依赖，未增加名字行为分派。
+- 具体 Command 自己按 id 查找候选节点、拒绝缺失目标、多态调用 move/scale/setAttribute，并构造摘要结果。参数仅为 string/number 原始值，构造时按值保存到只读私有字段，不接收外部数组/对象/Shape；复用表示在当次候选中重新查 id 并再次执行，不保存旧节点、执行结果或逆操作。
+- CommandResult 仅保存私有字符串 summary，构造时验证字符串并冻结外壳；Service 再读取一次摘要并构造自己的 Result，隔离自定义 Command 保留或重写的结果对象。结果不含领域引用、回调或属性集合。Undo/Redo 暂返回通用完成摘要，不实现 CLI 渲染、逐命令逆操作或历史摘要元数据。
+- EditorService 用单个私有 #state 持有不可变会话/历史组合。execute 依次取得候选副本、执行 Command、复制结果值、捕获编辑前历史、构造下一会话，再一次替换 #state。所有命令行为、克隆、数组和结果准备在发布前完成；发布只赋值一个有效私有字段，不调用领域方法、getter、回调或终端输出。
+- **复制成本**：一次成功编辑有四次文档级 clone：候选输出、编辑前文档输出、历史入栈、下一会话输入。分别封闭不同所有权边界，不重复复制整个历史。Undo/Redo 也为四次：当前输出、历史目标恢复、当前入反向栈、下一会话输入。没有为减少复制增加裸文档接管入口；后续有性能证据再调整，不提前引入事务框架。
+- 任一步失败都不替换 #state，旧文档、默认路径、双栈和禁用状态保持；成功无变化编辑同样 recordEdit 并清 Redo。Undo/Redo 从快照恢复且保留路径，不重执行原 Command。输入 Session/History 本身按 4A 契约不可变，Service 不修改它们，也不公开正式文档或内部状态对象；查询只输出独立文档和冻结的原始值历史状态。
+- **HistoryManager 最小调整**：新增 assertUndoAllowed/assertRedoAllowed 只读前提检查，将与 prepare 共用的禁用/空栈判定收敛到私有 #target；内部文档仍只在私有方法返回，公开断言返回 void。Service 先检查无文档，再检查禁用/空栈，最后复制，避免克隆错误覆盖应优先返回的状态错误；没有增加历史执行协调职责。
+- **同步边界**：Command 契约为同步执行。Service 的私有执行标志拒绝 Command/结果准备期间同步重入写操作，防止内层提交被外层旧状态覆盖；finally 总会释放标志。它不是新事务层，不保护任意外部篡改内建方法、原型或自定义 clone 契约，也不宣称支持异步命令。
+- **接口选择/设计假设**：构造时可接收已存在的 Session/History，便于后续启动接线和本轮测试；无文档不得带非空历史。默认路径不变，Service 没有初始化、调整画布或 IO 成功入口。HistoryStatus 只读返回两栈计数、禁用和可执行状态。
+- 本轮验证到实际候选执行与会话/历史一起发布；未执行 4C 的树编辑 Command，未实现文档历史边界的真实 init/read/save/canvas 行为。此前 4A 段落中的“未来 Service”描述保留为该迭代范围说明，以本段为当前状态。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -200,14 +213,17 @@ MAIN --> ConsoleTerminal
 17. **第三轮验收与第四轮规划**：用户确认第三轮综合验收通过且 4ac7f3c 已推送，main 与 origin/main 同步。用户原则上接受 4A–4D 四轮计划、快照替换不保留跨提交引用、编辑 Command 不维护逆操作及 init 清除默认路径等选择，随后只授权 4A。
 18. **4A 实现与测试**：AI 新增两个应用层类，采用不修改原值的历史转换与显式复制边界，没有增加 Service、Command 或领域修改。首轮 23 项专项测试有一项误用随后会被修改的输入作为预期基准；运行暴露断言错误后改为独立预期副本，并加强失败后不同栈内容的恢复断言，无需改变类实现。修正后专项测试全部通过。
 
+19. **4A 审查与 4B 授权**：用户确认 46cd354 专项审查无 P1/P2 阻塞，批准仅实现三个几何/属性 Command 和执行链路；要求候选引用逃逸、结果准备和全部历史失败不能影响正式状态。
+20. **4B 实现与验证**：AI 沿用 4A 不可变状态基础，以单次私有组合替换提交。发现恢复操作需在复制前判断禁用/空栈，故给 HistoryManager 加共用校验的只读断言，未重新设计状态层。补充同步重入拒绝；新增 48 项专项测试首轮类型检查、构建和执行均通过，包含命令/结果/历史/会话准备失败与克隆阶段故障注入。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 4A 新增 application/EditorSession 与 HistoryManager 及两份顶层测试；未预创建后续模块或占位类 |
-| 一类一文件 | 十个领域类和两个应用类分别在同名文件；HistoryTransition 为同文件只读结果接口；main.ts 与测试回调采用已批准例外 |
-| 依赖方向 | application 两类仅以类型依赖 SvgDocument，无 IO/XML/CLI；domain 不反向依赖 application；启动入口未接入业务；类型名创建分派仍仅在 ShapeFactory |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；快照历史转换基础已实现，Command、Service 与命令级 Undo/Redo 尚未实现 |
+| 目录与方案 | 4B 仅扩展 application，新增 Service/Result/Command 契约及三个具体 Command 和两份测试；未创建 4C/4D 或其他模块 |
+| 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
+| 依赖方向 | application 仅依赖自身和 domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；三种几何/属性 Command、Service 与对应 Undo/Redo 已实现；其余 Command 和文档命令边界尚未实现 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -292,6 +308,15 @@ git status --short
 - npm run typecheck、npm run build、npm test、npm start 均实际通过；184 项测试通过、0 失败，原 161 项全部继续通过。git diff --check 通过；任务书 SHA-256 保持初始化记录值。
 - 未修改领域层、任务书、依赖配置或启动入口；不提交 dist/node_modules。只创建本轮独立本地提交，不推送、不打标签。
 - 本轮验证范围是会话值与历史转换准备，不证明未来 Command 执行与当前文档/历史统一发布的原子性；后者留待 4B。当前不限制历史容量，不支持任意自定义 clone 契约、持久化历史或 IO 成功状态。
+
+### 4B 验证记录
+
+- 新增 geometry-commands.test.ts（9 项）与 editor-service.test.ts（39 项），共 48 项；覆盖叶子/嵌套组 Move/Scale/Set、参数按值捕获与复用、连续 Undo/Redo、新分支、合法无变化、非法属性/缺失目标/后代溢出、输入输出及结果引用隔离。
+- 通过测试专用匿名 Command 先修改几何/树/画布再抛错，或保留候选和节点后继续修改；检查正式文档、路径、完整树、属性、查询和归属仍一致。结果读取、历史准备和下一会话克隆失败均保留 Redo，并实际执行恢复以验证栈内容。
+- 对编辑的前三个文档克隆以及 Undo/Redo 全部四个克隆阶段注入异常；新会话输入失败另以候选后部节点 clone 抛错验证。无文档/禁用/空栈错误在复制前返回，异常后仍可继续执行，同步重入写操作拒绝。
+- npm run typecheck、npm run build、npm test、npm start 均实际通过；232 项测试通过、0 失败，原 184 项全部继续通过。git diff --check 通过，任务书 SHA-256 与初始化记录一致。
+- HistoryManager 只新增共用校验的只读前提断言，EditorSession 仅更新注释；领域层、任务书、依赖、配置和启动入口均未修改。提交前检查暂存范围，排除生成物；只创建一次本地提交，不推送、不打标签。
+- 本轮支持同步可信编辑 Command；不支持异步 Command 或不遵守领域 clone 契约的任意扩展。通用 Undo/Redo 摘要和当前快照成本已记录；没有发现必须在 4C 前解决的已知状态一致性问题，仍待用户专项审查。
 
 ### 后续验收范围
 
