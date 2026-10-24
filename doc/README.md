@@ -4,7 +4,7 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留及 P2 字符校验修复，并接入 5C 同步 FileStore、真实 read/save 与历史边界；现已完成 5D 的 Terminal/ConsoleTerminal、真实 REPL、19 个命令接线与进程级集成。`npm run cli` 先构建再启动交互程序，`npm start` 使用已构建入口；box 和插件不属于 Phase 1。Phase 1 最终综合验收已于 2026-10-24 通过，对应功能版本为 21ca5dc；main 的文档整改基线 266b7a4 已同步 GitHub；根目录 README 整改将形成新的交付候选提交，该新提交的推送与 final 标签仍等待用户后续授权。
+Phase 1 已完成领域图形树、Command/Composite、快照 Undo/Redo、19 个 CLI 命令及真实 SVG 读写，并于 2026-10-24 通过最终综合验收，功能验收提交为 21ca5dc。716 项自动化测试通过的结论来自此前功能验收，不表示纯文档提交重新运行了测试。已推送的最新交付候选为 3ec20b3，final 标签尚未创建或推送。
 
 ## 一、架构方案
 
@@ -339,7 +339,7 @@ npm run cli
 | §2 CLI/错误 | svg>；引号/转义/中文/颜色/空行/注释；严格参数，普通错误后继续，EOF 退出 | tokenizer、command-dispatcher、repl、console-terminal、真实 PTY/管道进程 |
 | §0 SVG 文件 | 可直接解释的标准 SVG 元素、XML 转义、字符串/真实文件语义往返 | svg-codec、svg-task-workflows、document-io、cli-process；本机 Chrome 实际产物视觉验收通过，见最终验收记录 |
 | §2.1 范式/模式 | TS 严格类型、一类一文件、封装/多态、Command/Composite、唯一业务名字分派 | 全部源码、契约/归属/原子性回归、类型检查、本文依赖自查 |
-| §1.1 Git | 按批准迭代独立提交，历史保留 | 基线 266b7a4 已同步 GitHub；README 整改将形成新提交，本轮不推送，final 标签尚未创建 |
+| §1.1 Git | 按批准迭代独立提交，历史保留 | 交付候选 3ec20b3 已同步 GitHub；本次状态修订另建本地文档提交，暂不推送；final 标签尚未创建或推送 |
 | §1.2 文档/协作 | 本文四部分、PlantUML、变化点、真实 AI 过程与质量保证 | 本文、AGENTS；2026-10-24 最终综合验收已通过 |
 | §4.4/§6.1 B | box/插件属于后续阶段，当前明确 unknown shape type | shape-factory、cli-process；没有提前实现 |
 
@@ -608,8 +608,8 @@ git status --short
 
 ### 后续验收范围
 
-Phase 1 的领域、树操作、应用与历史、CLI、SVG 文件读写及本机浏览器产物检查已通过最终综合验收。main 的整改基线 266b7a4 已同步 GitHub；新增根目录 README 并更新交付状态后将形成新的交付候选提交。该新提交尚待用户确认及推送授权，final 标签尚未创建或推送；须遵守任务书的截止时间要求。本次不实施 Phase 2 或额外功能。
+Phase 1 的领域、树操作、应用与历史、CLI、SVG 文件读写及本机浏览器产物检查已通过最终综合验收，README 整改亦已完成。交付候选 3ec20b3 已推送 GitHub；本次仅修订文档状态并创建新的本地提交，暂不推送。后续须由用户确认最终交付版本并授权创建、推送 final 标签，遵守任务书的截止时间要求；当前 final 标签尚未创建或推送，不实施 Phase 2 或额外功能。
 
 ### Git 交付边界
 
-初始化提交由用户确认已推送到 GitHub，main 跟踪 origin/main。2A/2B 各自只创建本地独立提交，不推送、不打标签；每轮提交前检查范围及生成物。当前 main 已同步 GitHub 至 266b7a4；本次仅提交根目录 README 与本文的交付说明，产生新提交后本地将领先远程，不修改既有历史，不推送。final 标签尚未创建或推送，最终交付仍按用户授权处理。
+初始化提交由用户确认已推送到 GitHub，main 跟踪 origin/main。2A/2B 各自只创建本地独立提交，不推送、不打标签；每轮提交前检查范围及生成物。历史文档验收基线为 266b7a4，README 整改提交为 7e9aab3，已推送的最新交付候选为 3ec20b3。本次修订前，本地 main 与 origin/main 同步于 3ec20b3；本次另建独立本地文档提交，不修改既有历史，暂不推送，也不创建或推送 final 标签。
