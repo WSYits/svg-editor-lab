@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留；REPL、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；现已实现 5B SVG 字符串编解码与安全属性保留及 P2 字符校验修复，并接入 5C 同步 FileStore、真实 read/save 与历史边界；REPL、CLI read/save 注册、真实终端集成、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter、svg 的 SvgCodec；domain 增加安全保留属性值对象，不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter、svg 的 SvgCodec、io 的 FileStore/LocalFileStore；domain 增加安全保留属性值对象，不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -62,7 +62,7 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。内存文档操作已有独立 Service 入口；CLI 内存命令分发与展示已实现，REPL 与真实文件操作仍待后续迭代。
+- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。文档操作已有独立 Service 入口，5C 接入真实 read/save；CLI 内存命令分发与展示已实现，read/save 的 CLI 注册和 REPL 待 5D。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
 - 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。5B 的 PreservedAttributes 是有白名单校验职责的不可变值对象，不是事务层或插件框架。
@@ -235,6 +235,50 @@ MAIN --> ConsoleTerminal
 
 测试检查任务书中全部五个完整 svg 根样例与 fixtures 完全对应。背景 transform 示例不能导入仍是用户批准的兼容性差距，不是任务书规定“必须拒绝”。尚未做真实文件 read/save 或浏览器产物验收，留到后续集成；不能将字符串往返描述为已验证文件操作。
 
+### 5C 实际同步文件持久化与文档边界
+
+**契约与最小调整**
+
+- io/FileStore 仅有同步 read(path): string 与 write(path, source): void 契约。LocalFileStore 是真实实现，只依赖 Node 文件、路径、随机名和 UTF-8 解码能力，不知道领域、会话、历史或终端。FileOperations 是用于故障注入的窄系统调用接口类型，不是插件或事务框架。
+- EditorService 构造保留已有 session/history 参数，第三参数注入 FileStore，第四参数可注入 SvgCodec（默认新建 Codec）；不导入 LocalFileStore。未配置存储时明确拒绝 IO，不给出假成功。5D 负责具体接线；Dispatcher、main、npm 脚本本轮不改。
+- read/save 返回 DocumentIoResult，包含冻结成功摘要与防御性复制后的冻结 warnings，不携带文档、节点或回调，不打印。元素数包含所有图形与组，不含 SVG 根。read 缺 id 的警告仅在整个操作成功后返回，5D 应先显示警告再显示摘要。
+- 最小状态层调整仅在 EditorService：把私有文档边界分为 prepareBoundary 和 publish；prepareBoundary 创建隔离 Session、重置后的 History 和冻结组合状态，publish 只赋值私有引用，连 Object.freeze/对象分配也移到发布之前。原编辑和 Undo/Redo 仍用同一发布点与同步写重入保护；只读查询仍可观察旧正式状态。Session、HistoryManager、Command、领域和 Codec 无改动。
+
+**读取安全与准确错误**
+
+- 默认 FileStore 上限为 1 MiB，可显式配置正安全整数；Codec 仍独立实施自身输入/节点/深度上限，调整时需同时考虑两者。read 先 lstat 拒绝直接符号链接/非普通文件，再以只读、NOFOLLOW、NONBLOCK 打开并 fstat 确认普通文件。已知超限大小在实际读取前拒绝，但不把 stat 作为唯一保障。
+- 以最多 64 KiB 分块，累计实际读取字节，最多读 limit + 1 字节以判定超限；文件增长或 stat 大小不可信也不能无限读入。关闭后才合并未超限数据并用 TextDecoder('utf-8', { fatal: true }) 解码，非法 UTF-8 报 invalid UTF-8 file encoding，不用替换字符掩盖损坏。UTF-8 BOM 可接受并移除；原文合法 U+FFFD 不被误拒绝。UTF-16/其他声明继续由字节解码或 Codec 明确拒绝。
+- 文件打开、访问、读取、关闭失败为 cannot read file: <输入路径>；已读取的超限、非法编码、XML、SVG 兼容性问题保留各自具体原因，不包装成文件不存在。所有错误无 CLI error: 前缀。
+- 完整 read 顺序：有界读/关闭 → 严格 UTF-8 → Codec 全部解析/建树 → 下一 Session/History/组合状态 → 完整成功结果 → 一次发布。任何失败都不改变旧文档、路径、过去/未来栈或禁用状态；本次独立候选和警告不逃逸。
+
+**保存顺序与保证边界（设计策略）**
+
+1. 取得当前文档隔离快照，确定显式路径或默认路径（无默认路径则拒绝），完整 encode。
+2. 在写盘前创建下一隔离 Session、清空并禁用的 History、冻结组合状态和完整 DocumentIoResult。
+3. LocalFileStore 在目标同目录用随机名和 wx 独占创建临时文件，模式 0600；循环处理短写，零进度拒绝；完整写入后 fsync 文件并 close。
+4. 重新检查目标为普通文件或不存在，再 rename 临时文件替换目标，不先删除目标。rename 返回成功后不再执行清理、刷新、结果构造或克隆；Service 仅赋值发布已准备好的组合状态并返回结果。
+
+- 写/刷新/关闭/rename 失败统一 cannot write file: <输入路径>，旧目标在正常本地 rename 语义下保持不变。失败前拥有的临时文件尽力删除；独占创建冲突不得删除别人的文件。清理失败保留原始错误 cause，可能残留临时文件；不把清理成功夸大为保证。close 抛错时描述符状态可能依平台而异，不盲目重试可能已关闭并复用的描述符；目标仍不替换。
+- 仅承诺已验证平台正常进程运行中的顺序与失败隔离，不承诺跨文件系统/内存事务、进程终止恢复、断电持久性、网络文件系统异常后的确定结果或敌对进程的目录竞态隔离。仅 fsync 文件，不在 rename 后 fsync 目录，以避免已替换后又因目录刷新报保存失败；因此不能宣称目录项已持久落盘。
+- 直接符号链接、目录和其他非普通目标明确拒绝；父目录中的符号链接仍按系统路径解析，未提供沙箱或父目录锁定。rename 即使面对并发更换的最终链接也替换目录项而非写穿链接，但其他进程可并发改变路径/内容，本轮不提供锁或一致快照保证。
+- 新文件及覆盖均使用新的私有 inode（0600 再受 umask 限制），不保留旧 mode、owner、ACL、扩展属性或时间戳；旧硬链接仍指向旧 inode。已有只读文件在目录授权允许时可能被 rename 替换，不把文件 mode 当作目录替换授权。测试以系统调用注入稳定覆盖权限错误，不依赖当前账户权限。
+- 相对路径每次按当前进程 cwd 解析，默认路径保留用户原始字符串，不展开 ~、环境变量、通配符或命令替换，不自动创建父目录。若外部代码改变 cwd，相对默认路径也按新 cwd 解释，这是当前设计假设；REPL 本身不计划提供 cd。
+- 终端输出不在 Service/FileStore 内。5D 必须区分操作失败与成功后的输出失败；保存成功后输出失败不能再提示“保存失败”或回滚内存。
+
+**历史与路径**
+
+| 操作 | 文档 | 默认路径 | 历史 |
+| --- | --- | --- | --- |
+| read(path) 成功 | 替换为完整导入副本 | path | 清双栈并禁用 |
+| save(path) 成功 | 语义不变的隔离副本 | path | 清双栈并禁用 |
+| save() 成功 | 同上 | 原默认路径 | 清双栈并禁用 |
+| 任意 read/save 失败 | 不变 | 不变 | 双栈及禁用均不变 |
+| init 成功 | 新空文档 | 清除 | 清双栈并禁用 |
+| canvas 修改成功 | 保留内容、改尺寸 | 保留 | 清双栈并禁用 |
+| 编辑/Undo/Redo | 现有快照语义 | 不随历史回退 | 边界后失败编辑不解禁，成功编辑记录并解禁 |
+
+禁用时 Undo/Redo 仍为 undo not allowed after io command；成功编辑解禁后 Undo 到空栈为 nothing to undo，而不是边界错误。真实文件往返不等于浏览器渲染或终端验收，后两者仍待 5D。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -313,14 +357,18 @@ MAIN --> ConsoleTerminal
 30. **5B P2 复现与最小整改授权**：用户确认 cd3ba11 审查发现一项 P2：实际孤立高代理码元后接 A 在 text/CDATA 中被 saxes 接受，返回的文档随后无法编码；注释中的同类非法输入被接受后丢弃。用户只批准独立修复，不重写 cd3ba11，不进入 5C/5D。
 31. **先失败后修复**：先新增 svg-xml-characters.test.ts（16 项），尚未修改 SvgCodec/PreservedAttributes 时，类型检查和构建通过，专项执行 7 通过、9 失败。text/CDATA/注释的 U+D800+A 均为 Missing expected exception；另有两高代理项未拒绝、部分非法序列错误文案不稳定，以及“解析器不得执行”断言失败。随后仅在 decode 字节检查后补入现有字符校验调用，专项变为 16/16 通过。
 
+32. **5B 复验通过与 5C 授权**：用户确认 bc53c8f 已关闭 P2，只批准同步文件 IO 和真实 read/save；不改 CLI Dispatcher/main、不进入 REPL。已完整核对任务书 §2、§3、§4.2/4.3 和现有状态/Codec 契约。
+33. **发布点的必要调整**：审查发现原 publish 内仍分配并 freeze 会话/历史组合对象；保存后再执行这一步不符合“所有准备先于写盘”。因此只把组合对象构造前移，保留同一个私有发布点，不改 Session/History 或增加事务层。save 先准备编码、会话、历史和结果，再触碰磁盘。
+34. **故障路径与验证口径**：增加真实临时目录测试和窄系统调用注入，覆盖短读短写、实际字节上限、UTF-8 非法字节及写/刷新/关闭/rename/清理失败。初次专项运行暴露两处测试设置问题：未传入已注入的系统调用对象，以及非法 XML 同时缺少命名空间导致更早兼容错误；修正测试以实际命中目标路径，未修改已验收的 XML 策略。记录清理/元数据/平台边界，不声称跨磁盘内存原子事务。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 5B 新增 svg/SvgCodec 与 domain/PreservedAttributes；领域仅扩展保留/复制和工厂 XML 描述，CLI/application/main 不变，无 IO/REPL 实现 |
+| 目录与方案 | 5C 新增 io/FileStore/LocalFileStore 和 application/DocumentIoResult；Service 接入真实 read/save；CLI/main 不变，无 REPL |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
-| 依赖方向 | cli 仅依赖 application/自身；application 仅依赖自身/domain；svg 仅依赖 domain、XML 解析器及 Node 模块加载器，不访问文件；domain 无反向依赖，Service 无具体 Command 分派；main 不接业务 |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，真实 read/save 边界仍待 IO 接入 |
+| 依赖方向 | cli 仅依赖 application/自身；application 依赖自身/domain/svg 和 FileStore 接口；io 只依赖 Node 原生模块；svg 仅依赖 domain、XML 解析器及 Node 模块加载器，不访问文件；domain 无反向依赖，Service 无具体 Command 分派；main 不接业务 |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，5C 真实 read/save 边界已接入，CLI 注册和 REPL 尚未完成 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -455,6 +503,15 @@ git status --short
 - 合法 ASCII、中文、显式 emoji 代理对、混合多字节字符及补充平面上下边界均完成 decode→encode→decode，比较文本、几何、属性、画布及顺序；XML Char 范围边界测试确认已有校验行为。
 - 修复前专项 7 通过/9 失败；修复后专项 16 通过/0 失败。全部测试 585 通过/0 失败，原 569 项（含 DTD/实体/命名空间/数值/保留属性/归属/Command/CLI）继续通过。npm run typecheck、npm run build、npm test、npm start、git diff --check 均实际通过；任务书 SHA-256 与初始化记录相同，受保护源码和依赖差异为空。
 - 原 cd3ba11 不改写，仅新增独立本地修复提交；本轮范围为 Codec 输入调用、专项测试、AGENTS 与本文。5B 仍待用户复验，真实文件 IO/UTF-8 字节解码、read/save 和 REPL 未实现，不据此声明跨文件系统一致性或浏览器兼容性已验证。
+
+### 5C 验证记录
+
+- 新增 file-store、document-io、document-io-failures 三份专项测试，共 98 项。FileStore 37 项，文档 IO 10 项，失败场景 51 项；覆盖真实新文件/覆盖、中文空格/相对/字面 shell 路径、UTF-8 BOM/合法 U+FFFD/非法序列、有界读与 stat 不可信、短读短写、直接链接拒绝、元数据与硬链接策略。
+- 对写入（含已写部分字节）、fsync、close、rename 注入失败，检查旧目标字节、临时文件与应用完整状态。双栈非空和禁用状态分别验证读取/编码/克隆/下一 Session/History/结果准备失败，实际恢复原 Redo 分支，不只检查计数。清理失败残留和独占冲突的非本方文件也有明确测试。
+- 真实 read 自动 id/冻结警告、完整嵌套树/保留属性的文件语义往返、group/ungroup/Undo/Redo 后保存读回、边界禁用/失败编辑/成功解禁/空栈/默认路径规则及写操作重入保护均通过。写入期间可观察的正式状态仍旧，替换后没有克隆/历史准备或文件操作；Service 不输出，消费结果失败不会回滚已成功保存。
+- 已实际运行 npm run typecheck、npm run build、npm test、npm start、git diff --check，全部通过；683 项测试通过、0 失败，原 585 项继续通过。npm test 包含重新构建，初始化子进程与 npm start 使用本轮产物，仍只输出初始化消息，不能称为真实终端验收。
+- 无新增依赖，无领域、TreeOwnership、Session、HistoryManager、十种 Command、Codec、Dispatcher、正式入口或任务书修改；任务书 SHA-256 与初始化记录相同。提交前核对暂存范围与生成物，仅一次独立本地提交，不推送、不打标签、不进入 5D。
+- 实际验证平台仍为 Node v26.8.1/npm 11.19.0 所在 macOS 环境；权限错误以注入证明，未宣称其他平台或断电/进程终止行为已验证。5D 仍须接线具体依赖、注册 read/save、显示成功警告、区分输出失败，并完成 REPL/真实终端和浏览器验收。
 
 ### 后续验收范围
 

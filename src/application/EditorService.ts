@@ -6,6 +6,9 @@ import type { Command } from './commands/Command.js';
 import { CommandResult } from './CommandResult.js';
 import { EditorSession, type CanvasSize } from './EditorSession.js';
 import { HistoryManager } from './HistoryManager.js';
+import { SvgCodec } from '../svg/SvgCodec.js';
+import type { FileStore } from '../io/FileStore.js';
+import { DocumentIoResult } from './DocumentIoResult.js';
 
 interface EditorState {
   readonly session: EditorSession;
@@ -23,8 +26,12 @@ export interface HistoryStatus {
 export class EditorService {
   #state: EditorState;
   #busy = false;
+  readonly #files: FileStore | undefined;
+  readonly #codec: SvgCodec;
 
-  constructor(session = new EditorSession(), history = new HistoryManager()) {
+  constructor(session = new EditorSession(), history = new HistoryManager(), fileStore?: FileStore, codec = new SvgCodec()) {
+    this.#files = fileStore;
+    this.#codec = codec;
     if (!session.hasDocument && (history.undoCount > 0 || history.redoCount > 0)) {
       throw new Error('nonempty history requires a document');
     }
@@ -52,6 +59,45 @@ export class EditorService {
       const document = width === undefined ? new SvgDocument() : new SvgDocument(width, height!);
       return this.#boundary(document, undefined, `canvas ${document.width}x${document.height} created`);
     });
+  }
+
+  read(path: string): DocumentIoResult {
+    return this.#run(() => {
+      const decoded = this.#fileStore().read(path);
+      const { document, warnings } = this.#codec.decode(decoded);
+      const next = this.#prepareBoundary(document, path);
+      const result = this.#ioResult(document, `read ${path}`, warnings);
+      this.#publish(next);
+      return result;
+    });
+  }
+
+  save(path?: string): DocumentIoResult {
+    return this.#run(() => {
+      const current = this.#state.session;
+      const document = this.#snapshot(current);
+      const target = path ?? current.defaultSavePath;
+      if (target === undefined) throw new Error('no save path. provide a file path');
+      const files = this.#fileStore();
+      const source = this.#codec.encode(document);
+      const next = this.#prepareBoundary(document, target);
+      const result = this.#ioResult(document, `saved to ${target}`);
+      // Complete all allocations, cloning, history and result preparation first.
+      // FileStore.write returns only after replacement, with no post-success work.
+      files.write(target, source);
+      this.#publish(next);
+      return result;
+    });
+  }
+
+  #fileStore(): FileStore {
+    if (!this.#files) throw new Error('file store is not configured');
+    return this.#files;
+  }
+
+  #ioResult(document: SvgDocument, summary: string, warnings: readonly string[] = []): DocumentIoResult {
+    const count = (nodes: readonly Shape[]): number => nodes.reduce((sum, node) => sum + 1 + count(node.children), 0);
+    return new DocumentIoResult(`${summary} (${count(document.roots)} elements)`, warnings);
   }
 
   getCanvasSize(): CanvasSize {
@@ -116,7 +162,7 @@ export class EditorService {
       const session = new EditorSession(candidate, current.defaultSavePath);
       // All execution, cloning, result creation and history preparation succeeded.
       // Publishing one private reference performs no domain work or user callback.
-      this.#publish(session, history);
+      this.#publish(Object.freeze({ session, history }));
       return result;
     });
   }
@@ -134,24 +180,28 @@ export class EditorService {
       const transition = undo ? current.history.prepareUndo(snapshot) : current.history.prepareRedo(snapshot);
       const session = new EditorSession(transition.document, current.session.defaultSavePath);
       const result = new CommandResult(undo ? 'undo completed' : 'redo completed');
-      this.#publish(session, transition.history);
+      this.#publish(Object.freeze({ session, history: transition.history }));
       return result;
     });
   }
 
-  // Only actual successful document operations reach this helper. Future IO
-  // integration must confirm completion before committing a boundary here.
-  #boundary(document: SvgDocument, defaultSavePath: string | undefined, summary: string): CommandResult {
+  #prepareBoundary(document: SvgDocument, defaultSavePath: string | undefined): EditorState {
     const session = new EditorSession(document, defaultSavePath);
     const history = this.#state.history.resetBoundary();
+    return Object.freeze({ session, history });
+  }
+
+  #boundary(document: SvgDocument, defaultSavePath: string | undefined, summary: string): CommandResult {
+    const next = this.#prepareBoundary(document, defaultSavePath);
     const result = new CommandResult(summary);
-    this.#publish(session, history);
+    this.#publish(next);
     return result;
   }
 
-  #publish(session: EditorSession, history: HistoryManager): void {
-    // No domain behavior, cloning or callbacks occur after this publication.
-    this.#state = Object.freeze({ session, history });
+  #publish(next: EditorState): void {
+    // The complete state object already exists. Only a private reference is set;
+    // no allocation, cloning, callback, output or filesystem work occurs here.
+    this.#state = next;
   }
 
   #assertDocument(session: EditorSession): void {
@@ -163,7 +213,7 @@ export class EditorService {
     return session.getDocumentSnapshot()!;
   }
 
-  #run(action: () => CommandResult): CommandResult {
+  #run<T>(action: () => T): T {
     if (this.#busy) throw new Error('editor operation already in progress');
     this.#busy = true;
     try {
