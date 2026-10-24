@@ -2,13 +2,13 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；CLI、SVG 编解码、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；已实现 5A CLI 词法、内存命令分发、查询与展示基础；REPL、SVG 编解码、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
 ### 模块与职责
 
-以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command；不代表全部模块完成。
+以下是已批准的目标结构；目前已实现 domain 的 Shape、六种图形、SvgDocument、ShapeFactory 及内部归属管理，以及 application 的会话、历史、Service 和十种编辑 Command，以及 cli 的 Tokenizer/Dispatcher/Presenter；不代表全部模块完成。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -31,7 +31,7 @@
 ```plantuml
 @startuml
 skinparam componentStyle rectangle
-component "CLI" as CLI
+component "CLI\nTokenizer / CommandDispatcher\nPresenter（Repl 待实现）" as CLI
 component "Application\nCommands / EditorService\nEditorSession / HistoryManager" as APP
 component "Domain\nSvgDocument / Shape hierarchy\nShapeFactory" as DOMAIN
 component "SVG\nSvgCodec" as SVG
@@ -62,7 +62,7 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。内存文档操作已有独立 Service 入口；CLI 分发与真实文件操作仍待后续迭代。
+- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。内存文档操作已有独立 Service 入口；CLI 内存命令分发与展示已实现，REPL 与真实文件操作仍待后续迭代。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
 - 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。
@@ -87,7 +87,7 @@ MAIN --> ConsoleTerminal
 - **结构原子性策略**：先完整检查容器、循环、根节点是否游离、子树 id/对象与现有树冲突，再同步提交归属和有序集合变更；构造也先检查全部输入再登记归属。删除先定位和检查原归属，移除子树时仅释放其根，内部归属保持；可在之后重新插入游离子树。
 - 2B 原实现的 TreeOwnership 只私有保存归属，导出 treeMutation 并允许组公开维护成员；专项审查证明它可以被直接调用绕过校验。该设计已被以下 P1 整改替代，不再依赖外部遵守 token 使用约定。
 - **方案修订**：暂不维护持久 id 查询索引，findById 直接遍历受控树，避免树和索引双重可变状态失配。插入校验存在重复遍历，接受当前小规模成本；将来有实际性能证据后再增加索引并验证一致性。
-- ShapeFactory 使用单个 switch 选择六种内置类型（唯一类型行为分派，仍标为待重构），接受结构化属性而非 CLI 参数或 XML；各图形继续承担自身白名单和数值校验。未知类型含 box 拒绝，不添加注册/加载机制。
+- 2B 时 ShapeFactory 使用单个 switch 选择六种内置类型（5A 已改为同一工厂内的私有描述/构造目录；唯一类型行为分派，仍标为待重构），接受结构化属性而非 CLI 参数或 XML；各图形继续承担自身白名单和数值校验。未知类型含 box 拒绝，不添加注册/加载机制。
 - 2B 不实现 group/ungroup/addto/front/back；3A 新增 addTo/front/back，3B 新增 group，3C 新增嵌套组 ungroup 子节点提升。基础 insert 仍仅接受未被拥有的子树，不偷偷执行重挂。
 
 ### P1 结构维护边界整改
@@ -178,6 +178,19 @@ MAIN --> ConsoleTerminal
 - **隔离和成本**：init 构造新文档后，在 Session 接收处做一次文档级 clone；canvas 修改做候选 clone 和 Session 接收 clone 共两次，后者阻断候选引用外泄；canvas 查询零次。边界无须额外保存旧文档快照，因为成功后历史明确清空。完整快照、TreeOwnership 独立归属和跨提交不保留节点身份的契约不变。
 - **历史状态**：成功 init/resize 后过去/未来均为空且禁用，Undo 与 Redo 都返回原始错误体 `undo not allowed after io command`，不含 CLI `error:`。失败编辑或查询保持禁用；下一次成功编辑（含合法无变化编辑）记录边界后的编辑前文档并解禁。Undo 回到边界后栈为空，报 `nothing to undo`，不会重新进入禁用状态。
 
+### 5A 实际 CLI 解析、查询与展示基础
+
+- **范围**：新增 cli/Tokenizer、CommandDispatcher、Presenter，新增 application/QueryView 只读接口，给 EditorService 增加查询投影和工厂描述转交。没有 REPL/Terminal/文件系统/SVG Codec，没有修改 main 或 npm 脚本；现有十种 Command、执行链路、Session、History 和 TreeOwnership 不变。
+- **词法**：Tokenizer 返回冻结 Token 数组及冻结的 value/quoted 值。空行和去除前导空白后的整行 # 注释无操作；颜色 #ffffff 与非行首 # 保留为参数，不实现行尾注释。双引号支持空文本、Unicode、转义双引号与反斜杠；拒绝未闭合、未知转义和引号与裸 token 粘连。不实施单引号语法或裸 token 的 shell 转义。
+- **设计假设（非任务书硬性要求）**：引用参数必须独占 token；词法错误优先，其后未知命令，再对已知命令执行无文档门禁，最后校验参数数量与业务。命令/类型大小写敏感。数字匹配完整十进制/科学计数法并检查有限值，拒绝空串、空白包裹、十六进制、NaN、Infinity、截断式 12abc。带引号的有效数字仍按数值属性转换；text/fill/stroke 始终保持字符串。
+- **分发**：CommandDispatcher.dispatch(line) 返回格式化字符串，空行返回空串，错误抛原始无前缀异常；未来 Repl 捕获后交 Presenter.error，不在分发中混入 IO。17 个内存命令名只注册一次：init、canvas、create、delete、move、scale、set、group、ungroup、addto、front、back、tree、show、help、undo、redo。read/save 未注册，当前返回 unknown command，不能视为已支持文件命令。
+- **工厂调整**：ShapeFactory 私有固定目录将构造函数和不可变参数描述集中在同一模块，替代旧 switch；describe 返回参数名称、值类型及可选性，getTypes 返回冻结类型名，attributeKind 集中查询自身/公共可编辑属性。工厂不识别 CLI 空白、引号、in 或文本数字。CLI 经 Service 取得描述，按参数顺序通用转换；没有另建六种图形的分支表，也不暴露构造回调。目录不是插件注册 API。
+- **创建和 set**：只识别完整末尾、未引用的 in <containerId>；被引用的 "in" 仍是普通值。参数数量由工厂描述校验；类型未知由工厂报告。set 先按当前候选前正式快照的 id 查询属性类型，再构造既有 SetAttributeCommand，目标/属性不合法时不执行编辑。Command 内部仍在真正候选中重新查找并执行领域行为。
+- **查询隔离**：getTreeView(id?)、getShapeView(id) 从独立文档快照投影，递归冻结节点、属性字典及子数组；仅含 type/id/parentId、原始属性值和顺序，没有 Shape、文档或回调。getAttributeKind 同样只读。查询失败、词法/语法失败不改变文档、路径、历史或禁用状态；投影生成失败也不发布状态。
+- **展示**：tree 有 svg (宽x高)、树枝与关键几何/显式样式，子树查询无画布外壳；show 含类型/id、parent=svg 或 g#id，几何与显式样式分行。Presenter 通用遍历属性，不做图形类型分派；width/height 显示为 w/h，文本用 text="…"，其余几何以键值显示。这保持 §5 的层级、几何、父级和属性要求，不追求示例空格或位置元组逐字相同。缺省样式不填入 black/none。
+- **帮助和错误**：help 从同一命令注册目录生成，并由工厂描述生成六类型创建参数说明。Presenter 统一添加一次 error:，摘要和错误控制字符转义为单行，树/属性文本也转义控制字符，防止输出注入；Service/领域仍不加前缀。成功提交后的格式化/未来终端故障不属于可回滚的编辑失败。
+- **性能边界**：查询为隔离复用现有 clone，不增加索引或缓存。当前投影查父级存在重复遍历，接受小文档成本；不为提前优化开放内部文档引用。后续保留属性和 XML 支持留到 5B，真实 IO 留到 5C，REPL/main 接线留到 5D。
+
 ### 已确认决策
 
 | 决策 | 内容 |
@@ -246,13 +259,16 @@ MAIN --> ConsoleTerminal
 23. **4C 审查与 4D 授权**：用户确认 ba117ab 专项审查没有 P1/P2 阻塞，仅授权内存 init/canvas 和文档历史边界；禁止伪 read/save 接口及后续模块。
 24. **4D 实现与故障验证**：AI 复用既有 Session clone、领域 resize、History resetBoundary 和重入保护，新增私有统一发布方法及尺寸值投影。首轮类型检查发现测试元组展开的静态类型问题，改为显式下标传参；首轮全部测试 336 项通过，再补充 Session 投影隔离和实际文档级 clone 次数测试。专项测试通过构造、逐次 clone、历史准备故障验证未发布状态，并实际遍历原 Undo/Redo 分支确认快照内容仍然有效。
 
+25. **第五轮规划与 5A 授权**：用户批准 5A–5D 四迭代，原则上接受同步 FileStore、同目录临时文件替换、必要工厂/保留属性调整和受控 SVG 子集；本轮只授权 CLI 解析、查询和展示，不实现 5B/5C/5D。
+26. **5A 实现与纠错**：AI 将工厂类型构造与参数描述集中为私有目录。首次编译后执行发现静态字段初始化中通过类名调用私有辅助方法的编译结果触发 Receiver 错误，改为静态 this 调用；随后原 338 项全部通过。新增词法、分发、展示、查询和描述测试，强调失败后完整状态及实际 Redo 内容，不只断言抛错；补充控制字符安全格式化和 show 几何/样式分行。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 4D 仅修改 application 的 Service/Session，新增两份专项测试；History/Command/领域实现不变，未创建 CLI/SVG/IO 模块 |
+| 目录与方案 | 5A 新增 cli 的三个类和 application 查询值接口；仅修改 Service 与领域工厂，无 REPL/SVG/IO 模块实现 |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
-| 依赖方向 | application 仅依赖自身和 domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
+| 依赖方向 | cli 仅依赖 application 与自身（无 domain 导入）；application 仅依赖自身/domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
 | Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，真实 read/save 边界仍待 IO 接入 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
@@ -364,6 +380,13 @@ git status --short
 - npm run typecheck、npm run build、npm test、npm start 均实际通过；338 项测试通过、0 失败，原 299 项继续通过。启动仍只输出初始化信息。git diff --check 通过，任务书 SHA-256 与初始化记录相同。
 - 本轮只修改 EditorService、EditorSession、AGENTS.md、本文并新增两份测试；未修改 HistoryManager、领域代码、十个 Command、任务书、依赖、启动入口。暂存清单和生成物检查通过后，仅创建授权的独立本地提交，不推送、不打标签。
 - 本轮证据只涉及同步内存文档操作与历史；真实 read/save 的 IO 成功确认、失败恢复及异步并发尚未实现/验证。未发现本轮已知阻塞问题，仍待用户最终验收；CLI、SVG 编解码及插件不在本轮范围。
+
+### 5A 验证记录
+
+- 新增 tokenizer、command-dispatcher、presenter、application-queries、creation-description 五份专项测试，共 113 项；六种图形根级/容器内创建、17 命令链路、严格数值、引用/转义、参数数量、无文档优先级和未知 read/save 均有覆盖。
+- 失败矩阵在已有双栈状态逐次比较树、几何、属性、默认路径和历史状态，并实际 Redo 验证分支内容未丢失；查询与展示不改变历史，冻结投影/工厂描述不能被修改，旧投影不随后续编辑变化。
+- 已实际运行 npm run typecheck、npm run build、npm test、npm start 及 git diff --check，均通过。451 项测试通过、0 失败，原 338 项回归全部通过；启动测试使用本轮重新构建的产物。任务书 SHA-256 与初始化记录相同，提交前继续核对暂存范围与生成物。
+- 正式启动仍输出初始化信息，不是 REPL。没有 read/save、SVG 属性保留或真实文件 IO；任务书、依赖、历史机制、十种 Command、几何/结构实现均不修改。只创建授权的本地独立提交，不推送、不打标签，完成后停止。
 
 ### 后续验收范围
 

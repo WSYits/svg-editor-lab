@@ -6,29 +6,72 @@ import { LineShape } from './LineShape.js';
 import { TextShape } from './TextShape.js';
 import { GroupShape } from './GroupShape.js';
 
+export type AttributeKind = 'number' | 'string';
+export interface CreationParameter {
+  readonly name: string;
+  readonly kind: AttributeKind;
+  readonly optional: boolean;
+}
+export interface CreationDescription {
+  readonly parameters: readonly CreationParameter[];
+}
+interface ShapeDefinition {
+  readonly description: CreationDescription;
+  readonly construct: (id: string, attributes: Readonly<Record<string, AttributeValue>>) => Shape;
+}
+
 export class ShapeFactory {
+  // The only shape-type dispatch/catalogue; still a documented refactoring point.
+  static readonly #definitions = new Map<string, ShapeDefinition>([
+    ['rect', this.#definition(['x', 'y', 'width', 'height'], 'fill',
+      (id, a) => new RectShape(id, this.#number(a, 'x'), this.#number(a, 'y'), this.#number(a, 'width'), this.#number(a, 'height')))],
+    ['circle', this.#definition(['cx', 'cy', 'r'], 'fill',
+      (id, a) => new CircleShape(id, this.#number(a, 'cx'), this.#number(a, 'cy'), this.#number(a, 'r')))],
+    ['ellipse', this.#definition(['cx', 'cy', 'rx', 'ry'], 'fill',
+      (id, a) => new EllipseShape(id, this.#number(a, 'cx'), this.#number(a, 'cy'), this.#number(a, 'rx'), this.#number(a, 'ry')))],
+    ['line', this.#definition(['x1', 'y1', 'x2', 'y2'], 'stroke',
+      (id, a) => new LineShape(id, this.#number(a, 'x1'), this.#number(a, 'y1'), this.#number(a, 'x2'), this.#number(a, 'y2')))],
+    ['text', this.#definition(['x', 'y', 'text'], undefined,
+      (id, a) => {
+        if (typeof a.text !== 'string') throw new Error('text must be a string');
+        return new TextShape(id, this.#number(a, 'x'), this.#number(a, 'y'), a.text);
+      })],
+    ['g', this.#definition([], undefined, id => new GroupShape(id))],
+  ]);
+
+  getTypes(): readonly string[] { return Object.freeze([...ShapeFactory.#definitions.keys()]); }
+
+  describe(type: string): CreationDescription { return this.#definitionFor(type).description; }
+
+  attributeKind(type: string, attribute: string): AttributeKind {
+    const parameters = this.describe(type).parameters;
+    const own = parameters.find(parameter => parameter.name === attribute);
+    if (own) return own.kind;
+    if (attribute === 'fill' || attribute === 'stroke') return 'string';
+    if (attribute === 'stroke-width') return 'number';
+    throw new Error(`unknown attribute: ${attribute}`);
+  }
+
   create(type: string, id: string, attributes: Readonly<Record<string, AttributeValue>> = {}): Shape {
-    let shape: Shape;
-    // The only shape-type behavior dispatch; a documented future refactoring point.
-    switch (type) {
-      case 'rect': shape = new RectShape(id, this.number(attributes, 'x'), this.number(attributes, 'y'), this.number(attributes, 'width'), this.number(attributes, 'height')); break;
-      case 'circle': shape = new CircleShape(id, this.number(attributes, 'cx'), this.number(attributes, 'cy'), this.number(attributes, 'r')); break;
-      case 'ellipse': shape = new EllipseShape(id, this.number(attributes, 'cx'), this.number(attributes, 'cy'), this.number(attributes, 'rx'), this.number(attributes, 'ry')); break;
-      case 'line': shape = new LineShape(id, this.number(attributes, 'x1'), this.number(attributes, 'y1'), this.number(attributes, 'x2'), this.number(attributes, 'y2')); break;
-      case 'text': {
-        const text = attributes.text;
-        if (typeof text !== 'string') throw new Error('text must be a string');
-        shape = new TextShape(id, this.number(attributes, 'x'), this.number(attributes, 'y'), text);
-        break;
-      }
-      case 'g': shape = new GroupShape(id); break;
-      default: throw new Error(`unknown shape type: ${type} (is the plugin loaded?)`);
-    }
+    const shape = this.#definitionFor(type).construct(id, attributes);
     for (const [attribute, value] of Object.entries(attributes)) shape.setAttribute(attribute, value);
     return shape;
   }
 
-  private number(attributes: Readonly<Record<string, AttributeValue>>, key: string): number {
+  #definitionFor(type: string): ShapeDefinition {
+    const definition = ShapeFactory.#definitions.get(type);
+    if (!definition) throw new Error(`unknown shape type: ${type} (is the plugin loaded?)`);
+    return definition;
+  }
+
+  static #definition(names: readonly string[], optionalStyle: string | undefined,
+    construct: ShapeDefinition['construct']): ShapeDefinition {
+    const parameters: CreationParameter[] = names.map(name => Object.freeze({ name, kind: name === 'text' ? 'string' : 'number', optional: false }));
+    if (optionalStyle) parameters.push(Object.freeze({ name: optionalStyle, kind: 'string', optional: true }));
+    return Object.freeze({ description: Object.freeze({ parameters: Object.freeze(parameters) }), construct });
+  }
+
+  static #number(attributes: Readonly<Record<string, AttributeValue>>, key: string): number {
     const value = attributes[key];
     if (typeof value !== 'number') throw new Error(`${key} must be a finite number`);
     return value;

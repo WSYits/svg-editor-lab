@@ -1,3 +1,6 @@
+import type { Shape } from '../domain/Shape.js';
+import { ShapeFactory, type AttributeKind, type CreationDescription } from '../domain/ShapeFactory.js';
+import type { ShapeView, TreeView } from './QueryView.js';
 import { SvgDocument } from '../domain/SvgDocument.js';
 import type { Command } from './commands/Command.js';
 import { CommandResult } from './CommandResult.js';
@@ -64,6 +67,43 @@ export class EditorService {
       candidate.resize(width, height);
       return this.#boundary(candidate, current.defaultSavePath, `canvas resized to ${candidate.width}x${candidate.height}`);
     });
+  }
+
+  getCreationTypes(): readonly string[] { return new ShapeFactory().getTypes(); }
+
+  getCreationDescription(type: string): CreationDescription {
+    return new ShapeFactory().describe(type);
+  }
+
+  getAttributeKind(id: string, attribute: string): AttributeKind {
+    const document = this.#snapshot(this.#state.session);
+    const shape = document.findById(id);
+    if (!shape) throw new Error(`no such shape: ${id}`);
+    return new ShapeFactory().attributeKind(shape.type, attribute);
+  }
+
+  getTreeView(id?: string): TreeView {
+    const document = this.#snapshot(this.#state.session);
+    const roots = id === undefined ? document.roots : [this.#requireShape(document, id)];
+    return Object.freeze({ width: document.width, height: document.height, subtree: id !== undefined,
+      roots: Object.freeze(roots.map(shape => this.#project(document, shape))) });
+  }
+
+  getShapeView(id: string): ShapeView {
+    const document = this.#snapshot(this.#state.session);
+    return this.#project(document, this.#requireShape(document, id));
+  }
+
+  #requireShape(document: SvgDocument, id: string): Shape {
+    const shape = document.findById(id);
+    if (!shape) throw new Error(`no such shape: ${id}`);
+    return shape;
+  }
+
+  #project(document: SvgDocument, shape: Shape): ShapeView {
+    return Object.freeze({ id: shape.id, type: shape.type, parentId: document.parentOf(shape.id)?.id,
+      attributes: Object.freeze({ ...shape.getAttributes() }),
+      children: Object.freeze(shape.children.map(child => this.#project(document, child))) });
   }
 
   execute(command: Command): CommandResult {
