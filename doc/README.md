@@ -2,7 +2,7 @@
 
 依据：`requirements/phase1.md`。本文将任务书要求、用户确认决策和设计假设分开记录。
 
-当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；4D 的 init/canvas、CLI、SVG 编解码、文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
+当前完成工程初始化、2A 叶子图形、2B 领域图形树基础及其 P1 结构维护边界整改、3A 重挂/排序、3B 原子 group 分组与 3C 嵌套组 ungroup 解组。另已完成 4A 状态基础、4B 执行链路与几何/属性 Command、4C 创建/删除/树编辑 Command，十种编辑均接入快照 Undo/Redo；现已完成 4D 内存 init/canvas 与历史边界；CLI、SVG 编解码、真实 read/save 文件 IO、box 和插件仍未实现。`npm start` 仍仅输出初始化信息并退出，不是可交互 CLI。
 
 ## 一、架构方案
 
@@ -62,10 +62,10 @@ MAIN --> ConsoleTerminal
 ### 模式与执行策略
 
 - **任务书要求（§1.2、§2.1）**：Command 模式、面向对象、一类一文件、字段封装及容器/叶子统一操作。
-- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。CLI 分发与文档操作仍待后续迭代。
+- **已落地范围**：十种图形编辑 Command 封装行为，不只是参数容器；EditorService 多态执行，不按命令名解释业务。组和叶子通过 Shape 多态完成几何操作；SvgDocument 协调跨节点结构变化。内存文档操作已有独立 Service 入口；CLI 分发与真实文件操作仍待后续迭代。
 - **设计策略**：候选文档副本上执行，成功后统一提交；完整文档快照配合过去/未来双栈，避免复杂逆操作。
 - CommandDispatcher 和 ShapeFactory 是仅有的名字行为分派入口，按 §2.1 标为待重构点。工厂同时服务 create 与 SVG 导入。
-- 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 或插件框架；当前规模不需要这些层次。
+- 未增加 EditTransaction、HistoryEntry、Reader/Writer 接口、独立 CanvasSize 类或插件框架（4D 仅增加宽高值接口）；当前规模不需要这些层次。
 
 ### 2A 实际领域契约
 
@@ -164,7 +164,19 @@ MAIN --> ConsoleTerminal
 - **快照验收**：每项成功结构编辑先记录完整树，再 Undo 比较画布、类型、属性（包括未设置样式）、层级、兄弟顺序及全文档查询/归属；每个恢复对象与外部旧快照均不同。Group/ Ungroup 各只增一个历史单元。跨父级 group 的 Undo 恢复各原父级，而后续 ungroup 仅提升到当前父级，两者不是互逆。
 - 新增一条十步混合序列，覆盖七种新 Command、属性修改、嵌套子树删除及删除后复用旧 id；逐步 Undo/Redo 对照所有中间树。测试还让 GroupCommand.execute 和文档 group/ungroup 在首次执行后抛错，确认历史恢复不重执行命令或模拟逆操作。
 - 失败矩阵包括未知类型/box、创建 id/属性/几何/父级错误、非法 group 选择、顶层或非组解组、重挂循环和缺失排序目标。均在已有 Redo 分支上检查文档、路径、双栈及禁用状态保持，并实际 Redo 验证内容；失败不抹掉原分支。
-- 当前只完成编辑 Command；文档历史边界实际操作、CLI 参数解析和 SVG/IO 仍未实现。既有四次文档级 clone 策略和同步执行边界不变，未增加插件或新抽象。
+- 截至 4C 只完成编辑 Command；该轮尚未实现文档历史边界实际操作、CLI 参数解析和 SVG/IO。既有四次文档级 clone 策略和同步执行边界不变，未增加插件或新抽象。
+
+### 4D 实际内存文档操作与历史边界
+
+- **依据与范围**：任务书 §3 的文档类规定 init 默认 800×600、canvas 查询/修改；§2 要求失败不改变任何状态，§4.3 规定文档命令之后禁用历史。已确认 D1 将成功文档操作作为清空双栈的新边界，失败与查询不改变历史；本轮只验证 init/canvas，不代表 read/save 已实现或通过验证。
+- EditorService 新增 `init(width?, height?)`、`getCanvasSize()`、`resizeCanvas(width, height)`。init 可在无文档时调用，创建空文档并清除默认路径；尺寸省略时用领域默认值。零或两个参数、尺寸有限且严格为正是既有设计假设；缺一个尺寸拒绝。CLI 参数数量/文本解析仍待后续实现。
+- canvas 查询由 EditorSession 新增只读投影返回冻结的 `{ width, height }`；没有文档时 Session 返回 undefined，Service 按无文档规则拒绝。查询不复制文档，不涉及历史，也不泄漏领域对象；调用方不能修改返回值，每次取得新值。
+- canvas 修改先取得独立候选文档并调用现有 resize，再准备新 Session（保留路径）、清空禁用的新 History 和结果。合法同尺寸修改也执行完整边界流程；无文档时先报无文档错误。init 与 canvas 修改均不走普通编辑 Command。
+- 私有 `#boundary` 只做已完成的内存文档操作的状态准备；没有公开的保存成功通知。未来 read/save 应由实际 IO 执行链路在确认成功后接入，并另行处理异步 IO 与提交时序，不可把调用此辅助方法当作 IO 成功证明。
+- **统一发布**：新文档构造、候选修改、Session 复制、resetBoundary 和 CommandResult 全部准备成功后，才由私有 `#publish` 冻结新状态并一次替换引用；既有 execute/Undo/Redo 也复用该发布点。发布之后只返回已准备结果，不执行克隆、领域操作或回调。冻结状态对象在赋值前完成，若其准备失败原引用不变；不宣称可以恢复进程终止或资源耗尽。
+- 继续使用既有 `#run` 的 try/finally 写重入保护；构造/克隆期间嵌套 init/resize 会拒绝，查询仍读取旧正式状态。任何准备失败不会发布新 Session 或 History，不清栈、不改路径或禁用状态；不调整领域接口、HistoryManager 或编辑 Command。
+- **隔离和成本**：init 构造新文档后，在 Session 接收处做一次文档级 clone；canvas 修改做候选 clone 和 Session 接收 clone 共两次，后者阻断候选引用外泄；canvas 查询零次。边界无须额外保存旧文档快照，因为成功后历史明确清空。完整快照、TreeOwnership 独立归属和跨提交不保留节点身份的契约不变。
+- **历史状态**：成功 init/resize 后过去/未来均为空且禁用，Undo 与 Redo 都返回原始错误体 `undo not allowed after io command`，不含 CLI `error:`。失败编辑或查询保持禁用；下一次成功编辑（含合法无变化编辑）记录边界后的编辑前文档并解禁。Undo 回到边界后栈为空，报 `nothing to undo`，不会重新进入禁用状态。
 
 ### 已确认决策
 
@@ -231,14 +243,17 @@ MAIN --> ConsoleTerminal
 21. **4B 审查与 4C 授权**：用户确认 ad4307b 专项审查无 P1/P2 阻塞，批准仅新增七种创建/树编辑 Command；重点要求新建对象不可复用归属、集合参数复制，以及复杂树的历史恢复。
 22. **4C 实现与专项验证**：AI 复用现有 Service 和领域接口，没有发现必须调整的接入问题。七个 Command 只封装调用，不重复树算法；新增 structure-commands 专项测试首轮 65 项通过，随后补充文档根为公共容器的分组和解组保留嵌套组两项，共 67 项通过。每次恢复检查序列、属性、归属、查询及对象独立性，避免把 ungroup 等同 Undo。
 
+23. **4C 审查与 4D 授权**：用户确认 ba117ab 专项审查没有 P1/P2 阻塞，仅授权内存 init/canvas 和文档历史边界；禁止伪 read/save 接口及后续模块。
+24. **4D 实现与故障验证**：AI 复用既有 Session clone、领域 resize、History resetBoundary 和重入保护，新增私有统一发布方法及尺寸值投影。首轮类型检查发现测试元组展开的静态类型问题，改为显式下标传参；首轮全部测试 336 项通过，再补充 Session 投影隔离和实际文档级 clone 次数测试。专项测试通过构造、逐次 clone、历史准备故障验证未发布状态，并实际遍历原 Undo/Redo 分支确认快照内容仍然有效。
+
 ## 三、一致性自查
 
 | 检查 | 当前结论 |
 | --- | --- |
-| 目录与方案 | 4C 仅新增 application/commands 下七个具体类及一份专项测试；沿用 Service/History 和领域结构，无 4D 或其他模块实现 |
+| 目录与方案 | 4D 仅修改 application 的 Service/Session，新增两份专项测试；History/Command/领域实现不变，未创建 CLI/SVG/IO 模块 |
 | 一类一文件 | 领域和应用业务类均在同名文件；状态转换接口不增加空类；测试中的匿名 Command/Result 用于注入行为，不属于新增业务类型 |
 | 依赖方向 | application 仅依赖自身和 domain，无 IO/XML/CLI；domain 无反向依赖；Service 不依赖具体 Command；启动入口不接业务 |
-| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；文档命令边界尚未实现 |
+| Command/Composite | 递归几何、样式、复制及领域重挂/排序/group/ungroup 已实现；十种图形编辑 Command、Service 与对应快照 Undo/Redo 已实现；内存 init/canvas 边界已实现，真实 read/save 边界仍待 IO 接入 |
 | 任务书保护 | 初始化前记录 SHA-256，完成后核对，见质量保证记录 |
 | 架构修订 | 工厂迁移、事务删除、快照简化和 Codec 合并已记录；后续偏差继续如实追加 |
 
@@ -340,6 +355,15 @@ git status --short
 - npm run typecheck、npm run build、npm test、npm start 均实际通过；299 项测试通过、0 失败，原 232 项（含 P1 及 2A–4B）全部继续通过。git diff --check 通过，任务书 SHA-256 保持初始化记录值。
 - 仅新增七个 Command 类和一份专项测试、更新 AGENTS/doc；Service、Session/History、契约、结果类、几何 Command、领域层、任务书、依赖和启动入口均未修改。提交前检查暂存范围，不提交生成物；只创建一次本地提交，不推送、不打标签。
 - 仍未实现 4D 文档操作或任何 CLI/SVG/IO；沿用同步 Command、完整快照和通用 Undo/Redo 摘要限制。未发现必须在 4D 前解决的已知接入或状态一致性问题，仍待用户专项审查。
+
+### 4D 验证记录
+
+- 新增 document-boundaries.test.ts 与 application-workflow.test.ts 共 39 项测试。覆盖默认/显式/重复 init、无文档错误、canvas 查询、同尺寸边界、路径清除/保留，非法尺寸及缺一参数；在双栈非空和已禁用状态下分别注入 Session/candidate clone 与历史准备失败，比较完整状态，再实际恢复原历史分支。
+- 模拟新文档构造失败；观察克隆准备期间正式宽高/路径/历史仍是旧值；验证 init/resize 重入拒绝、只读查询可用、成功及异常之后写保护释放。直接测量 init 一次、resize 两次、查询零次文档级 clone。
+- 连续工作流实际执行边界→失败编辑→查询→成功编辑→Undo 到空→Redo，以及合法无变化编辑清除 Redo。init 后混合创建/分组/几何/属性/解组逐步 Undo/Redo，比对画布、路径、完整树、属性缺省、顺序、id 查询和 TreeOwnership 归属；修改外部输入/输出副本不污染正式状态或旧 Session。
+- npm run typecheck、npm run build、npm test、npm start 均实际通过；338 项测试通过、0 失败，原 299 项继续通过。启动仍只输出初始化信息。git diff --check 通过，任务书 SHA-256 与初始化记录相同。
+- 本轮只修改 EditorService、EditorSession、AGENTS.md、本文并新增两份测试；未修改 HistoryManager、领域代码、十个 Command、任务书、依赖、启动入口。暂存清单和生成物检查通过后，仅创建授权的独立本地提交，不推送、不打标签。
+- 本轮证据只涉及同步内存文档操作与历史；真实 read/save 的 IO 成功确认、失败恢复及异步并发尚未实现/验证。未发现本轮已知阻塞问题，仍待用户最终验收；CLI、SVG 编解码及插件不在本轮范围。
 
 ### 后续验收范围
 
